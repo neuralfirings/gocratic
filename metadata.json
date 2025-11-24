@@ -1,0 +1,5 @@
+{
+  "name": "GoCratic",
+  "description": "A Go (Baduk) learning platform for kids featuring a Socratic AI tutor that guides rather than solves.",
+  "requestFramePermissions": []
+}
