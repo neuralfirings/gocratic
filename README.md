@@ -45,20 +45,58 @@ The application is built as a Single Page Application (SPA) using React.
 *   **`gnugoService.ts` / `simpleAi.ts`**:
     *   Implements a custom **Monte Carlo Tree Search (MCTS)** engine.
     *   Uses an async loop with `setTimeout` yielding to prevent blocking the main UI thread during calculations.
-    *   *Note: The architecture supports swapping this out for a WebAssembly implementation of GnuGo.*
+    *   *Note: The architecture supports swapping this out for a WebAssembly implementation of GnuGo, but currently defaults to the JS MCTS engine for ease of deployment.*
+
+---
+
+## Getting Started
+
+### Prerequisites
+*   Node.js (v18+ recommended)
+*   npm or yarn
+
+### Installation
+
+1.  **Clone the repository**
+    ```bash
+    git clone <repository-url>
+    cd gocratic
+    ```
+
+2.  **Install dependencies**
+    ```bash
+    npm install
+    ```
+
+3.  **Configure API Key**
+    To enable the Socratic AI features (Panda Sensei), you need a **Google Gemini API Key**.
+    
+    1.  Get a free key from [Google AI Studio](https://aistudio.google.com/).
+    2.  Create a `.env` file in the root directory (or set it in your environment variables).
+    3.  Add the key:
+        ```
+        API_KEY=your_actual_api_key_here
+        ```
+    *Note: Ensure your build system (Vite/Webpack) is configured to expose this key to `process.env`.*
+
+4.  **Run the Application**
+    ```bash
+    npm start
+    ```
+    Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+
+### Game Engine Setup
+*   **No WASM installation required**: This version uses a pure JavaScript engine (`services/simpleAi.ts`) by default. This ensures the game runs immediately after `npm install` without needing to compile binaries or manage CORS headers for WebAssembly files.
+*   **No Python/Backend required**: The logic is entirely client-side.
 
 ---
 
 ## Dependencies
 
-### Runtime Dependencies
+### Runtime
 *   **React 19**: UI Framework.
 *   **@google/genai**: SDK for interacting with the Gemini 2.5 Flash model.
-*   **Tailwind CSS**: Utility-first CSS framework (loaded via CDN for lightweight setup).
-
-### External APIs
-*   **Google Gemini API**: Required for the Socratic tutoring features. An API Key must be configured in `metadata.json` or environment variables.
+*   **Tailwind CSS**: Utility-first CSS framework.
 
 ### Dev/Build
 *   **TypeScript**: Application logic is strictly typed.
-*   **Vite/Webpack** (Implicit): Assumed build tool for module bundling.
