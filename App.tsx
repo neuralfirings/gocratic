@@ -1,10 +1,11 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat } from './components/SenseiChat';
 import { createBoard, placeStone } from './services/gameLogic';
 import { getSocraticHint } from './services/aiService';
-import { BoardState, Coordinate, ChatMessage, HintLevel, Marker } from './types';
+import { gnugo } from './services/gnugoService';
+import { BoardState, Coordinate, ChatMessage, HintLevel, Marker, DifficultyLevel, EngineStatus } from './types';
 
 // Simple Mock Puzzles
 const PUZZLES = [
@@ -13,12 +14,10 @@ const PUZZLES = [
     name: 'Capture the White Stone',
     setup: (board: BoardState) => {
       const b = createBoard(9);
-      // Setup a capture scenario
       b.stones.set('4,4', 'WHITE');
       b.stones.set('3,4', 'BLACK');
       b.stones.set('4,3', 'BLACK');
       b.stones.set('5,4', 'BLACK');
-      // Solution is 4,5
       return b;
     }
   },
@@ -27,10 +26,9 @@ const PUZZLES = [
     name: 'Stop the Invasion',
     setup: (board: BoardState) => {
       const b = createBoard(9);
-      // Setup a defense scenario
       b.stones.set('2,2', 'BLACK');
       b.stones.set('6,6', 'WHITE');
-      b.stones.set('2,3', 'WHITE'); // Threatening
+      b.stones.set('2,3', 'WHITE');
       return b;
     }
   }
@@ -44,59 +42,95 @@ export default function App() {
     sender: 'sensei',
     text: "Welcome! I'm Panda Sensei. Let's play Go! You can ask for help anytime."
   }]);
+  
   const [hintLevel, setHintLevel] = useState<HintLevel>(HintLevel.NONE);
   const [activeMarkers, setActiveMarkers] = useState<Marker[]>([]);
   const [loadingAi, setLoadingAi] = useState(false);
+  
+  // Engine State
+  const [engineStatus, setEngineStatus] = useState<EngineStatus>('INITIALIZING');
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>(1);
+
+  // Initialize Engine
+  useEffect(() => {
+    const initEngine = async () => {
+        if (gameMode !== 'FREE') return;
+        
+        setEngineStatus('INITIALIZING');
+        try {
+            await gnugo.init(9, difficulty);
+            setEngineStatus('READY');
+        } catch (e) {
+            console.error("Engine failed", e);
+            setEngineStatus('ERROR');
+            addMessage('sensei', "I'm having trouble connecting to the game engine. We might need to refresh.");
+        }
+    };
+    initEngine();
+  }, [difficulty, gameMode]);
 
   const addMessage = (sender: 'user' | 'sensei', text: string) => {
     setMessages(prev => [...prev, { id: Date.now().toString(), sender, text }]);
   };
 
-  const handlePlay = useCallback((c: Coordinate) => {
+  const handlePlay = useCallback(async (c: Coordinate) => {
+    if (engineStatus === 'THINKING' || engineStatus === 'INITIALIZING') return;
+
     // Human Move
     const nextState = placeStone(board, c);
     if (nextState) {
       setBoard(nextState);
       setHintLevel(HintLevel.NONE); 
-      setActiveMarkers([]); // Clear markers on new move
+      setActiveMarkers([]);
       
-      // Simple AI Opponent Response (Random legal move for demo purposes)
-      if (!nextState.gameOver) {
-        setTimeout(() => {
-          let placed = false;
-          let attempts = 0;
-          while (!placed && attempts < 50) {
-            const rx = Math.floor(Math.random() * nextState.size);
-            const ry = Math.floor(Math.random() * nextState.size);
-            const aiMoveState = placeStone(nextState, { x: rx, y: ry });
-            if (aiMoveState) {
-              setBoard(aiMoveState);
-              placed = true;
+      // Update Engine with Human Move
+      if (gameMode === 'FREE') {
+          await gnugo.play('BLACK', c, 9);
+      }
+
+      // Opponent Response
+      if (!nextState.gameOver && gameMode === 'FREE') {
+        setEngineStatus('THINKING');
+        
+        // Slight delay for UX
+        setTimeout(async () => {
+            try {
+                const move = await gnugo.genMove('WHITE', 9);
+                setEngineStatus('READY');
+
+                if (move) {
+                    const aiState = placeStone(nextState, move);
+                    if (aiState) {
+                        setBoard(aiState);
+                    }
+                } else {
+                    addMessage('sensei', "White passes.");
+                }
+            } catch (e) {
+                console.error("Engine Generate Error", e);
+                setEngineStatus('ERROR');
+                // Fallback random move if engine fails
+                addMessage('sensei', "The engine is confused, playing a random move.");
             }
-            attempts++;
-          }
-        }, 800);
+        }, 100);
       }
     }
-  }, [board]);
+  }, [board, gameMode, engineStatus]);
 
   const handleHelp = async () => {
-    // Increment hint level logic
     const nextLevel = hintLevel < HintLevel.DIRECT_SUGGESTION 
       ? hintLevel + 1 
       : HintLevel.DIRECT_SUGGESTION;
     
     setHintLevel(nextLevel as HintLevel);
     setLoadingAi(true);
-    setActiveMarkers([]); // Clear previous markers while loading
+    setActiveMarkers([]);
 
-    // Add user request to chat
     const userText = nextLevel === 1 ? "I'm stuck, can you help?" 
       : nextLevel === 2 ? "I need more specific options." 
       : "Just show me the best move.";
     addMessage('user', userText);
 
-    // Call Gemini
     const hint = await getSocraticHint(board, nextLevel as HintLevel);
     addMessage('sensei', hint.text);
     
@@ -117,6 +151,7 @@ export default function App() {
     }]);
     setHintLevel(HintLevel.NONE);
     setActiveMarkers([]);
+    setEngineStatus('READY'); // Engine not needed for puzzles really, but keep ready
   };
 
   const resetGame = () => {
@@ -129,6 +164,7 @@ export default function App() {
     }]);
     setHintLevel(HintLevel.NONE);
     setActiveMarkers([]);
+    // Effect will re-trigger init
   };
 
   return (
@@ -163,27 +199,58 @@ export default function App() {
         {/* Left Column: Board & Stats */}
         <section className="lg:col-span-7 xl:col-span-8 flex flex-col gap-6">
           
-          <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <div className="flex items-center gap-4">
-              <div className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 ${board.turn === 'BLACK' ? 'bg-slate-900 text-white ring-2 ring-indigo-500 ring-offset-2' : 'bg-slate-100 text-slate-400'}`}>
-                <div className="w-3 h-3 rounded-full bg-slate-900 border border-slate-600"></div>
-                Black {board.captures.BLACK > 0 && <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full">+{board.captures.BLACK}</span>}
+          <div className="flex flex-col gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+            {/* Stats Row */}
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-4">
+                <div className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 ${board.turn === 'BLACK' ? 'bg-slate-900 text-white ring-2 ring-indigo-500 ring-offset-2' : 'bg-slate-100 text-slate-400'}`}>
+                  <div className="w-3 h-3 rounded-full bg-slate-900 border border-slate-600"></div>
+                  Black {board.captures.BLACK > 0 && <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full">+{board.captures.BLACK}</span>}
+                </div>
+                <div className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 ${board.turn === 'WHITE' ? 'bg-white border border-slate-300 text-slate-900 ring-2 ring-indigo-500 ring-offset-2' : 'bg-slate-100 text-slate-400'}`}>
+                  <div className="w-3 h-3 rounded-full bg-white border border-slate-300"></div>
+                  White {board.captures.WHITE > 0 && <span className="text-xs bg-slate-200 px-2 py-0.5 rounded-full">+{board.captures.WHITE}</span>}
+                  {engineStatus === 'THINKING' && <span className="ml-2 text-xs text-indigo-600 animate-pulse">Thinking...</span>}
+                </div>
               </div>
-              <div className={`px-4 py-2 rounded-lg font-bold flex items-center gap-2 ${board.turn === 'WHITE' ? 'bg-white border border-slate-300 text-slate-900 ring-2 ring-indigo-500 ring-offset-2' : 'bg-slate-100 text-slate-400'}`}>
-                <div className="w-3 h-3 rounded-full bg-white border border-slate-300"></div>
-                White {board.captures.WHITE > 0 && <span className="text-xs bg-slate-200 px-2 py-0.5 rounded-full">+{board.captures.WHITE}</span>}
+              
+              {gameMode === 'PUZZLE' ? (
+                 <div className="text-sm font-semibold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">
+                    Puzzle Mode
+                 </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-bold text-slate-600">Opponent Strength:</label>
+                  <select 
+                    value={difficulty}
+                    onChange={(e) => setDifficulty(Number(e.target.value) as DifficultyLevel)}
+                    disabled={engineStatus === 'THINKING'}
+                    className="p-2 rounded-lg border border-slate-300 bg-slate-50 text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    {[...Array(10)].map((_, i) => (
+                      <option key={i+1} value={i+1}>Level {i+1} {i === 0 ? '(Weakest)' : i === 9 ? '(Strongest)' : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            
+            {/* Engine Status Bar */}
+            {gameMode === 'FREE' && (
+              <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                {engineStatus === 'INITIALIZING' && <div className="h-full bg-amber-400 w-full animate-pulse" />}
+                {engineStatus === 'THINKING' && <div className="h-full bg-indigo-500 w-1/3 animate-[loading_1s_ease-in-out_infinite]" />}
+                {engineStatus === 'READY' && <div className="h-full bg-emerald-400 w-full" />}
+                {engineStatus === 'ERROR' && <div className="h-full bg-red-400 w-full" />}
               </div>
-            </div>
-            <div className="text-sm font-semibold text-slate-500">
-              {gameMode === 'FREE' ? 'Free Play' : 'Puzzle Mode'}
-            </div>
+            )}
           </div>
 
           <div className="flex justify-center">
             <GoBoard 
               board={board} 
               onPlay={handlePlay} 
-              interactive={board.turn === 'BLACK'} // For demo, user is always black vs Random AI
+              interactive={board.turn === 'BLACK' && engineStatus !== 'THINKING' && engineStatus !== 'INITIALIZING'} 
               markers={activeMarkers}
             />
           </div>
@@ -228,6 +295,13 @@ export default function App() {
         </section>
 
       </main>
+      
+      <style>{`
+        @keyframes loading {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(300%); }
+        }
+      `}</style>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+
 import { BoardState, StoneColor, Coordinate } from '../types';
 
 export const createBoard = (size: number = 9): BoardState => ({
@@ -63,17 +64,52 @@ const getGroup = (
   return { group: Array.from(group), liberties };
 };
 
+// Check if a move is a "Suicide" (0 liberties after placement and no captures)
+const isSuicide = (stones: Map<string, StoneColor>, move: Coordinate, color: StoneColor, size: number): boolean => {
+  const nextStones = new Map(stones);
+  const key = `${move.x},${move.y}`;
+  nextStones.set(key, color);
+  
+  // Check if we captured anything
+  const opponent = color === 'BLACK' ? 'WHITE' : 'BLACK';
+  const neighbors = getNeighbors(move, size);
+  let captured = false;
+  
+  for (const n of neighbors) {
+    const nKey = `${n.x},${n.y}`;
+    if (nextStones.get(nKey) === opponent) {
+      const { liberties } = getGroup(nextStones, n, opponent, size);
+      if (liberties === 0) {
+        captured = true;
+        break;
+      }
+    }
+  }
+  
+  if (captured) return false; // Not suicide if we capture
+
+  // Check our own liberties
+  const { liberties } = getGroup(nextStones, move, color, size);
+  return liberties === 0;
+};
+
 export const placeStone = (currentState: BoardState, move: Coordinate): BoardState | null => {
   if (currentState.gameOver) return null;
   
   const key = `${move.x},${move.y}`;
   if (currentState.stones.has(key)) return null; // Occupied
 
+  const opponent = currentState.turn === 'BLACK' ? 'WHITE' : 'BLACK';
+
+  // Quick suicide check before doing heavy logic
+  if (isSuicide(currentState.stones, move, currentState.turn, currentState.size)) {
+    return null;
+  }
+
   // Clone state
   const nextStones = new Map(currentState.stones);
   nextStones.set(key, currentState.turn);
   
-  const opponent = currentState.turn === 'BLACK' ? 'WHITE' : 'BLACK';
   const neighbors = getNeighbors(move, currentState.size);
   let capturedStonesCount = 0;
   
@@ -95,18 +131,8 @@ export const placeStone = (currentState: BoardState, move: Coordinate): BoardSta
     }
   });
 
-  // Check self-capture (suicide rule)
-  // Suicide is allowed ONLY if it captures opponent stones (which we handled above)
-  // If no stones captured, check if the placed stone has liberties
-  if (capturedStonesCount === 0) {
-    const { liberties } = getGroup(nextStones, move, currentState.turn, currentState.size);
-    if (liberties === 0) {
-      return null; // Invalid suicide move
-    }
-  }
-
   // Ko rule (simplified: just don't allow immediate recapture of same board state)
-  // For this lightweight version, we skip complex superko checks but this is where it would go.
+  // For this lightweight version, we skip complex superko checks.
 
   return {
     ...currentState,
@@ -142,4 +168,29 @@ export const boardToString = (state: BoardState): string => {
     boardStr += row + "\n";
   }
   return boardStr;
+};
+
+export const cloneBoard = (state: BoardState): BoardState => ({
+  ...state,
+  stones: new Map(state.stones),
+  captures: { ...state.captures },
+  history: [...state.history]
+});
+
+export const getLegalMoves = (state: BoardState): Coordinate[] => {
+  const moves: Coordinate[] = [];
+  for (let y = 0; y < state.size; y++) {
+    for (let x = 0; x < state.size; x++) {
+      const coord = { x, y };
+      // Check if spot is empty first
+      if (!state.stones.has(`${x},${y}`)) {
+        // Check if move is legal by attempting to place stone
+        // This covers suicide, ko, etc.
+        if (placeStone(state, coord)) {
+          moves.push(coord);
+        }
+      }
+    }
+  }
+  return moves;
 };

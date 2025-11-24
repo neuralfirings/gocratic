@@ -58,3 +58,7 @@ export interface Puzzle {
   targetSolution?: Coordinate; // Simplified for demo
   difficulty: 'Beginner' | 'Intermediate';
 }
+
+export type DifficultyLevel = number; // 1-10
+
+export type EngineStatus = 'INITIALIZING' | 'READY' | 'THINKING' | 'ERROR';
