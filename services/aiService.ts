@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { BoardState, ChatMessage, Marker } from "../types";
 import { boardToString } from "./gameLogic";
@@ -120,7 +121,9 @@ export const getSenseiResponse = async (
   };
 
   // --- LOGGING REQUEST ---
-  console.log("🐼 [Sensei] FULL API PAYLOAD:", requestPayload);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log("🐼 [Sensei] FULL API PAYLOAD:", requestPayload);
+  }
 
   try {
     const response = await ai.models.generateContent(requestPayload);
@@ -128,7 +131,9 @@ export const getSenseiResponse = async (
     const responseText = response.text || "{}";
     
     // --- LOGGING RESPONSE ---
-    console.log("🐼 [Sensei] Raw Response:", responseText);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log("🐼 [Sensei] Raw Response:", responseText);
+    }
 
     // Calculate Cost
     const inputTokens = (prompt.length + SYSTEM_INSTRUCTION.length) / 4;

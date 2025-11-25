@@ -48,7 +48,9 @@ class LocalEngineService {
     const levelIndex = Math.min(Math.max(this.level, 0), 10);
     const simulationCount = LEVEL_TO_SIMULATIONS[levelIndex];
 
-    console.log(`AI Thinking... Level: ${this.level}, Simulations: ${simulationCount}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`AI Thinking... Level: ${this.level}, Simulations: ${simulationCount}`);
+    }
 
     // Pass the raw number to generateMove
     const move = await generateMove(this.board, simulationCount);

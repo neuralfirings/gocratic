@@ -153,7 +153,9 @@ export default function App() {
         }
     } catch (e: any) {
         if (e.message === 'Aborted' || e.name === 'AbortError') {
-            console.log("AI Cancelled");
+            if (process.env.NODE_ENV !== 'production') {
+              console.log("AI Cancelled");
+            }
             setEngineStatus('READY');
         } else {
             console.error("Engine Generate Error", e);

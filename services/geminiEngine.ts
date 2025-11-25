@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { BoardState, Coordinate } from "../types";
 import { boardToString, getLegalMoves } from "./gameLogic";
@@ -62,7 +63,9 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
   };
 
   // --- LOGGING REQUEST ---
-  console.log("🤖 [Gemini Engine] FULL API PAYLOAD:", requestPayload);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log("🤖 [Gemini Engine] FULL API PAYLOAD:", requestPayload);
+  }
 
   try {
     // 2. Call Gemini
@@ -71,7 +74,9 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
     const responseText = response.text || "{}";
     
     // --- LOGGING RESPONSE ---
-    console.log("🤖 [Gemini Engine] Raw Response:", responseText);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log("🤖 [Gemini Engine] Raw Response:", responseText);
+    }
     
     // 3. Calculate Cost
     const inputTokens = (prompt.length + SYSTEM_INSTRUCTION.length) / 4;
@@ -104,7 +109,9 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
         return null;
     }
 
-    console.log("🤖 [Gemini Engine] Parsed Move Object:", parsed);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log("🤖 [Gemini Engine] Parsed Move Object:", parsed);
+    }
     
     // Check for Pass
     if (!parsed.coordinate || parsed.coordinate.toUpperCase() === 'PASS') {
