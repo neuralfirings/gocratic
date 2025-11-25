@@ -67,3 +67,21 @@ export type EngineStatus = 'INITIALIZING' | 'READY' | 'THINKING' | 'ERROR';
 export type GamePhase = 'PLAY' | 'SETUP';
 
 export type SetupTool = 'ALTERNATE' | 'BLACK_ONLY' | 'WHITE_ONLY' | 'CLEAR';
+
+export interface ScoreResult {
+  blackStones: number;
+  blackTerritory: number;
+  blackTotal: number;
+  whiteStones: number;
+  whiteTerritory: number;
+  komi: number;
+  whiteTotal: number;
+  winner: 'BLACK' | 'WHITE';
+  diff: number;
+}
+
+export interface GameResult {
+  winner: 'BLACK' | 'WHITE';
+  reason: 'RESIGNATION' | 'SCORING';
+  score?: ScoreResult;
+}

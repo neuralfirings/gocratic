@@ -21,6 +21,7 @@ OUTPUT:
 - Format: { "coordinate": "D4", "reason": "One sentence explanation." }
 - Coordinates: Standard Go coordinates (e.g. A1, D4, J9).
 - If passing, return { "coordinate": "PASS", "reason": "Pass" }.
+- If the game is hopeless and you are losing by a large margin (win rate < 10%), return { "coordinate": "RESIGN", "reason": "I resign." }.
 
 RULES:
 1. Do NOT provide explanations outside the JSON. ONLY the JSON object.
@@ -28,9 +29,11 @@ RULES:
 `;
 
 export interface GeminiMoveResult {
-  move: Coordinate;
+  move: Coordinate | null;
   reason: string;
   cost: number;
+  isPass: boolean;
+  isResign: boolean;
 }
 
 export const getGeminiMove = async (board: BoardState, modelName: string = "gemini-2.5-flash"): Promise<GeminiMoveResult | null> => {
@@ -114,9 +117,26 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
       console.log("🤖 [Gemini Engine] Parsed Move Object:", parsed);
     }
     
+    // Check for Resignation
+    if (parsed.coordinate && parsed.coordinate.toUpperCase() === 'RESIGN') {
+      return {
+        move: null,
+        reason: parsed.reason || "I resign.",
+        cost: estimatedCost,
+        isPass: false,
+        isResign: true
+      };
+    }
+
     // Check for Pass
     if (!parsed.coordinate || parsed.coordinate.toUpperCase() === 'PASS') {
-      return null;
+      return {
+          move: null,
+          reason: parsed.reason || "Pass",
+          cost: estimatedCost,
+          isPass: true,
+          isResign: false
+      };
     }
 
     // 5. Convert & Validation
@@ -137,7 +157,9 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
     return {
       move: proposedMove,
       reason: parsed.reason || "Strategic placement.",
-      cost: estimatedCost
+      cost: estimatedCost,
+      isPass: false,
+      isResign: false
     };
 
   } catch (error) {

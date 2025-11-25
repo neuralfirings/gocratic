@@ -1,6 +1,8 @@
 
-import { BoardState, StoneColor, Coordinate } from '../types';
+import { BoardState, StoneColor, Coordinate, ScoreResult } from '../types';
 import { toGtpCoordinate, COLS } from './gtpUtils';
+
+export const KOMI = 6.5;
 
 export const createBoard = (size: number = 9): BoardState => ({
   size,
@@ -163,10 +165,6 @@ export const setStone = (currentState: BoardState, move: Coordinate, color: Ston
         nextStones.set(key, color);
     }
 
-    // When forcibly setting stones in setup mode (not alternate play), we generally don't record it as a "move"
-    // However, if we are in "Alternate" mode in the app, we use placeStone instead.
-    // This function is for Black Only / White Only mode.
-
     return {
         ...currentState,
         stones: nextStones,
@@ -231,4 +229,81 @@ export const getLegalMoves = (state: BoardState): Coordinate[] => {
     }
   }
   return moves;
+};
+
+// --- SCORING LOGIC (Chinese / Area Scoring) ---
+// Score = Stones on board + Surrounded Territory
+// White gets Komi (6.5)
+
+export const calculateAreaScore = (board: BoardState): ScoreResult => {
+    const visited = new Set<string>();
+    let blackStones = 0;
+    let whiteStones = 0;
+    let blackTerritory = 0;
+    let whiteTerritory = 0;
+
+    // 1. Count Stones
+    board.stones.forEach((color) => {
+        if (color === 'BLACK') blackStones++;
+        else whiteStones++;
+    });
+
+    // 2. Flood Fill Empty Regions
+    for (let y = 0; y < board.size; y++) {
+        for (let x = 0; x < board.size; x++) {
+            const key = `${x},${y}`;
+            
+            if (board.stones.has(key) || visited.has(key)) continue;
+
+            // Found an empty unvisited point. Start Flood Fill.
+            const region: string[] = [];
+            const queue: Coordinate[] = [{x, y}];
+            visited.add(key);
+            region.push(key);
+
+            let touchesBlack = false;
+            let touchesWhite = false;
+
+            while (queue.length > 0) {
+                const current = queue.shift()!;
+                const neighbors = getNeighbors(current, board.size);
+
+                for (const n of neighbors) {
+                    const nKey = `${n.x},${n.y}`;
+                    const stone = board.stones.get(nKey);
+
+                    if (stone === 'BLACK') touchesBlack = true;
+                    else if (stone === 'WHITE') touchesWhite = true;
+                    else if (!visited.has(nKey)) {
+                        visited.add(nKey);
+                        region.push(nKey);
+                        queue.push(n);
+                    }
+                }
+            }
+
+            // Determine ownership
+            if (touchesBlack && !touchesWhite) {
+                blackTerritory += region.length;
+            } else if (!touchesBlack && touchesWhite) {
+                whiteTerritory += region.length;
+            }
+            // If touches both (dame) or neither (impossible in finished game?), no points.
+        }
+    }
+
+    const blackTotal = blackStones + blackTerritory;
+    const whiteTotal = whiteStones + whiteTerritory + KOMI;
+    
+    return {
+        blackStones,
+        blackTerritory,
+        blackTotal,
+        whiteStones,
+        whiteTerritory,
+        komi: KOMI,
+        whiteTotal,
+        winner: blackTotal > whiteTotal ? 'BLACK' : 'WHITE',
+        diff: Math.abs(blackTotal - whiteTotal)
+    };
 };
