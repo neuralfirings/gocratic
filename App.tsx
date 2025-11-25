@@ -3,10 +3,10 @@ import React, { useState, useCallback } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat } from './components/SenseiChat';
 import { createBoard, placeStone } from './services/gameLogic';
-import { getSocraticHint } from './services/aiService';
+import { getSenseiResponse } from './services/aiService';
 import { generateMove, getLevelSimulations } from './services/simpleAi';
 import { getGeminiMove } from './services/geminiEngine';
-import { BoardState, Coordinate, ChatMessage, HintLevel, Marker, DifficultyLevel, EngineStatus } from './types';
+import { BoardState, Coordinate, ChatMessage, Marker, DifficultyLevel, EngineStatus } from './types';
 
 // Simple Mock Puzzles
 const PUZZLES = [
@@ -41,10 +41,9 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     sender: 'sensei',
-    text: "Welcome! I'm Panda Sensei. Let's play Go! You can ask for help anytime."
+    text: "Welcome! I'm Panda Sensei. Let's play Go! Ask me anything about the game."
   }]);
   
-  const [hintLevel, setHintLevel] = useState<HintLevel>(HintLevel.NONE);
   const [activeMarkers, setActiveMarkers] = useState<Marker[]>([]);
   const [loadingAi, setLoadingAi] = useState(false);
   
@@ -52,6 +51,9 @@ export default function App() {
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('READY');
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(1);
   const [lastExplanation, setLastExplanation] = useState<string | null>(null);
+
+  // Cost Tracking
+  const [sessionCost, setSessionCost] = useState<number>(0);
 
   const addMessage = (sender: 'user' | 'sensei', text: string) => {
     setMessages(prev => [...prev, { id: Date.now().toString(), sender, text }]);
@@ -64,9 +66,7 @@ export default function App() {
     const nextState = placeStone(board, c);
     if (nextState) {
       setBoard(nextState);
-      setHintLevel(HintLevel.NONE); 
       setActiveMarkers([]);
-      // Clear explanation when user moves (new context)
       setLastExplanation(null);
       
       // Opponent Response
@@ -78,21 +78,34 @@ export default function App() {
             try {
                 let move: Coordinate | null = null;
                 let explanation: string | null = null;
+                let moveCost = 0;
 
                 if (difficulty === 11) {
-                    // Use Gemini Engine
-                    const result = await getGeminiMove(nextState);
+                    // Level 11: Gemini 2.5 Flash
+                    const result = await getGeminiMove(nextState, "gemini-2.5-flash");
                     if (result) {
                       move = result.move;
                       explanation = result.reason;
+                      moveCost = result.cost;
+                    }
+                } else if (difficulty === 12) {
+                    // Level 12: Gemini 3 Pro
+                    const result = await getGeminiMove(nextState, "gemini-3-pro-preview");
+                    if (result) {
+                      move = result.move;
+                      explanation = result.reason;
+                      moveCost = result.cost;
                     }
                 } else {
-                    // Use Monte Carlo Engine
+                    // Levels 1-10: Monte Carlo Engine
                     const simCount = getLevelSimulations(difficulty);
                     move = await generateMove(nextState, simCount);
                 }
                 
                 setEngineStatus('READY');
+                if (moveCost > 0) {
+                    setSessionCost(prev => prev + moveCost);
+                }
 
                 if (move) {
                     const aiState = placeStone(nextState, move);
@@ -113,41 +126,26 @@ export default function App() {
     }
   }, [board, gameMode, engineStatus, difficulty]);
 
-  const handleHelp = async () => {
-    const nextLevel = hintLevel < HintLevel.DIRECT_SUGGESTION 
-      ? hintLevel + 1 
-      : HintLevel.DIRECT_SUGGESTION;
-    
-    setHintLevel(nextLevel as HintLevel);
+  const handleSendMessage = async (text: string) => {
     setLoadingAi(true);
+    // Optimistically update UI
+    setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'user', text }]);
     setActiveMarkers([]);
 
-    const userText = nextLevel === 1 ? "I'm stuck, can you help?" 
-      : nextLevel === 2 ? "I need more specific options." 
-      : "Just show me the best move.";
-    addMessage('user', userText);
-
-    const hint = await getSocraticHint(board, nextLevel as HintLevel);
-    addMessage('sensei', hint.text);
+    // Call Sensei AI with board context + full history
+    const response = await getSenseiResponse(board, messages, text);
     
-    if (hint.markers) {
-      setActiveMarkers(hint.markers);
+    addMessage('sensei', response.text);
+    
+    if (response.cost > 0) {
+      setSessionCost(prev => prev + response.cost);
+    }
+    
+    if (response.markers) {
+      setActiveMarkers(response.markers);
     }
     
     setLoadingAi(false);
-  };
-
-  const handleAskWhy = () => {
-    if (!lastExplanation) return;
-    
-    addMessage('user', "Why did you make that move?");
-    
-    // Simulate short "typing" delay
-    setLoadingAi(true);
-    setTimeout(() => {
-      addMessage('sensei', `🤖 ${lastExplanation}`);
-      setLoadingAi(false);
-    }, 600);
   };
 
   const startPuzzle = (puzzleIndex: number) => {
@@ -158,10 +156,10 @@ export default function App() {
       sender: 'sensei',
       text: `Let's try: ${PUZZLES[puzzleIndex].name}. Good luck!`
     }]);
-    setHintLevel(HintLevel.NONE);
     setActiveMarkers([]);
     setEngineStatus('READY'); 
     setLastExplanation(null);
+    setSessionCost(0);
   };
 
   const resetGame = () => {
@@ -172,9 +170,9 @@ export default function App() {
       sender: 'sensei',
       text: "New game started! You are Black."
     }]);
-    setHintLevel(HintLevel.NONE);
     setActiveMarkers([]);
     setLastExplanation(null);
+    setSessionCost(0);
   };
 
   return (
@@ -235,9 +233,10 @@ export default function App() {
                     value={difficulty}
                     onChange={(e) => setDifficulty(Number(e.target.value) as DifficultyLevel)}
                     disabled={engineStatus === 'THINKING'}
-                    className="p-2 rounded-lg border border-slate-300 bg-slate-50 text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="p-2 rounded-lg border border-slate-300 bg-slate-50 text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none max-w-[200px]"
                   >
-                    <option value={11}>🤖 Gemini 2.5 Flash (AI)</option>
+                    <option value={11}>🤖 Gemini 2.5 Flash</option>
+                    <option value={12}>🧠 Gemini 3 Pro (Smart)</option>
                     <option disabled>──────────</option>
                     {[...Array(10)].map((_, i) => (
                       <option key={i+1} value={i+1}>Level {i+1} {i === 0 ? '(Beginner)' : i === 9 ? '(Sensei)' : ''}</option>
@@ -258,13 +257,19 @@ export default function App() {
             )}
           </div>
 
-          <div className="flex justify-center">
+          <div className="flex justify-center flex-col items-center">
             <GoBoard 
               board={board} 
               onPlay={handlePlay} 
               interactive={board.turn === 'BLACK' && engineStatus !== 'THINKING'} 
               markers={activeMarkers}
             />
+            {/* Cost Estimate Display */}
+            {sessionCost > 0 && (
+              <div className="mt-3 text-xs text-slate-400 font-mono tracking-wide bg-slate-50 px-3 py-1 rounded-full border border-slate-200">
+                Est. Session Cost: <span className="text-slate-600 font-semibold">${sessionCost.toFixed(6)}</span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4 md:hidden">
@@ -286,10 +291,7 @@ export default function App() {
           <SenseiChat 
             messages={messages} 
             loading={loadingAi} 
-            onAskHelp={handleHelp} 
-            onAskWhy={handleAskWhy}
-            hintCount={hintLevel}
-            canAskWhy={!!lastExplanation && engineStatus !== 'THINKING'}
+            onSendMessage={handleSendMessage}
           />
           
           <div className="mt-6 bg-amber-50 p-4 rounded-xl border border-amber-100">

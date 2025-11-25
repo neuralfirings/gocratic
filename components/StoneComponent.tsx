@@ -15,14 +15,15 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
     if (!markerType) return null;
 
     // Contrast color: If stone is black, marker is white. If stone is white, marker is black. 
-    // If no stone (empty), marker is Red/Blue for visibility.
-    const markerColor = color === 'BLACK' ? '#ffffff' : color === 'WHITE' ? '#0f172a' : '#ef4444'; // Red for empty spots
+    // If no stone (empty), marker is Red for visibility.
+    const markerColor = color === 'BLACK' ? '#ffffff' : color === 'WHITE' ? '#0f172a' : '#ef4444'; 
     
+    // Uses inset-0 + m-auto for robust centering instead of transforms
     const commonProps = {
       stroke: markerColor,
       strokeWidth: "2.5",
       fill: "none",
-      className: "w-[60%] h-[60%] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+      className: "w-[60%] h-[60%] absolute inset-0 m-auto z-20 pointer-events-none"
     };
 
     switch (markerType) {
@@ -60,7 +61,7 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
       {color && (
         <div 
           className={`
-            w-[90%] h-[90%] rounded-full shadow-lg relative
+            w-[90%] h-[90%] rounded-full shadow-lg relative z-10
             ${color === 'BLACK' 
               ? 'bg-slate-900 shadow-slate-900/50' 
               : 'bg-slate-100 border border-slate-300 shadow-slate-400/50'}
@@ -78,12 +79,8 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
         </div>
       )}
       
-      {/* Semantic Marker (Triangle, etc) - Renders on top of stone or empty space */}
-      {markerType && (
-        <div className="absolute inset-0 z-20">
-          {renderMarker()}
-        </div>
-      )}
+      {/* Semantic Marker (Triangle, etc) - Renders directly in the center */}
+      {renderMarker()}
     </div>
   );
 };

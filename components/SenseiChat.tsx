@@ -1,31 +1,40 @@
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from '../types';
 
 interface SenseiChatProps {
   messages: ChatMessage[];
   loading: boolean;
-  onAskHelp: () => void;
-  onAskWhy: () => void;
-  hintCount: number;
-  canAskWhy: boolean;
+  onSendMessage: (text: string) => void;
 }
 
 export const SenseiChat: React.FC<SenseiChatProps> = ({ 
   messages, 
   loading, 
-  onAskHelp, 
-  onAskWhy, 
-  hintCount,
-  canAskWhy 
+  onSendMessage
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [input, setInput] = useState('');
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (input.trim() && !loading) {
+      onSendMessage(input.trim());
+      setInput('');
+    }
+  };
+
+  const handleQuickAction = (text: string) => {
+    if (!loading) {
+      onSendMessage(text);
+    }
+  };
 
   return (
     <div className="flex flex-col h-[500px] w-full lg:w-96 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden">
@@ -36,7 +45,7 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
         </div>
         <div>
           <h2 className="text-white font-bold text-lg">Panda Sensei</h2>
-          <p className="text-indigo-200 text-xs">Always here to help!</p>
+          <p className="text-indigo-200 text-xs">Ask me anything about the game!</p>
         </div>
       </div>
 
@@ -45,7 +54,7 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
         {messages.length === 0 && (
           <div className="text-center text-slate-400 mt-10">
             <p>Start playing!</p>
-            <p className="text-sm">Tap "Ask Sensei" if you get stuck.</p>
+            <p className="text-sm">Type below if you have questions.</p>
           </div>
         )}
         {messages.map((msg) => (
@@ -55,7 +64,7 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
           >
             <div 
               className={`
-                max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed
+                max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap
                 ${msg.sender === 'user' 
                   ? 'bg-indigo-500 text-white rounded-br-none' 
                   : 'bg-white text-slate-700 shadow-sm border border-slate-200 rounded-bl-none'}
@@ -78,37 +87,53 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
         )}
       </div>
 
-      {/* Actions */}
-      <div className="p-4 bg-white border-t border-slate-100 flex gap-2">
-        <button
-          onClick={onAskHelp}
-          disabled={loading}
-          className={`
-            flex-1 py-3 px-2 rounded-xl font-bold text-white shadow-md transition-all text-sm
-            flex items-center justify-center gap-2
-            ${loading 
-              ? 'bg-slate-300 cursor-not-allowed' 
-              : 'bg-amber-500 hover:bg-amber-600 hover:scale-[1.02] active:scale-95'}
-          `}
-        >
-          <span>💡</span>
-          {hintCount === 0 ? "Hint" : hintCount === 1 ? "More Info" : "Solution"}
-        </button>
+      {/* Input Area */}
+      <div className="bg-white border-t border-slate-100">
+        
+        {/* Quick Actions */}
+        <div className="px-3 pt-3 flex gap-2 overflow-x-auto no-scrollbar">
+          <button 
+            onClick={() => handleQuickAction("Give me a hint")}
+            disabled={loading}
+            className="flex-shrink-0 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full transition-colors border border-indigo-200 disabled:opacity-50"
+          >
+            💡 Give me a hint
+          </button>
+          <button 
+            onClick={() => handleQuickAction("Explain your last move")}
+            disabled={loading}
+            className="flex-shrink-0 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold rounded-full transition-colors border border-amber-200 disabled:opacity-50"
+          >
+            🤔 Explain last move
+          </button>
+        </div>
 
-        <button
-          onClick={onAskWhy}
-          disabled={!canAskWhy || loading}
-          className={`
-            flex-1 py-3 px-2 rounded-xl font-bold text-white shadow-md transition-all text-sm
-            flex items-center justify-center gap-2
-            ${!canAskWhy || loading
-              ? 'bg-slate-300 cursor-not-allowed text-slate-500' 
-              : 'bg-indigo-500 hover:bg-indigo-600 hover:scale-[1.02] active:scale-95'}
-          `}
-        >
-          <span>🤔</span>
-          Why?
-        </button>
+        <div className="p-3">
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              disabled={loading}
+              placeholder="Ask specific questions..."
+              className="flex-1 px-4 py-2 bg-slate-50 border border-slate-300 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || loading}
+              className={`
+                w-10 h-10 rounded-full flex items-center justify-center text-white transition-all shadow-md
+                ${!input.trim() || loading 
+                  ? 'bg-slate-300 cursor-not-allowed' 
+                  : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'}
+              `}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 pl-0.5">
+                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+              </svg>
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

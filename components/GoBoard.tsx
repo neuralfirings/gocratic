@@ -27,12 +27,6 @@ export const GoBoard: React.FC<GoBoardProps> = ({ board, onPlay, interactive, ma
       <div className="relative w-full h-full">
         
         {/* SVG Grid Layer - Background */}
-        {/* 
-            ViewBox 0 0 size size
-            This maps exactly to the grid cells.
-            Center of Top-Left cell (0,0) is at SVG coordinates (0.5, 0.5)
-            Center of Bottom-Right cell (size-1, size-1) is at SVG coordinates (size-0.5, size-0.5)
-        */}
         <svg 
           className="absolute inset-0 w-full h-full pointer-events-none z-0" 
           viewBox={`0 0 ${size} ${size}`}
@@ -70,7 +64,6 @@ export const GoBoard: React.FC<GoBoardProps> = ({ board, onPlay, interactive, ma
         </svg>
 
         {/* Interactive Layer (Stones and Click Targets) */}
-        {/* Uses CSS Grid where each cell corresponds to one intersection */}
         <div 
           className="relative z-10 grid w-full h-full"
           style={{ 
@@ -93,7 +86,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({ board, onPlay, interactive, ma
                 key={key}
                 onClick={() => interactive && onPlay({ x, y })}
                 className={`
-                  flex items-center justify-center cursor-pointer
+                  relative flex items-center justify-center cursor-pointer
                   hover:bg-slate-900/10 rounded-full transition-colors duration-200
                 `}
               >
