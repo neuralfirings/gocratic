@@ -1,10 +1,11 @@
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat } from './components/SenseiChat';
 import { createBoard, placeStone } from './services/gameLogic';
 import { getSocraticHint } from './services/aiService';
-import { gnugo } from './services/gnugoService';
+import { generateMove, getLevelSimulations } from './services/simpleAi';
+import { getGeminiMove } from './services/geminiEngine';
 import { BoardState, Coordinate, ChatMessage, HintLevel, Marker, DifficultyLevel, EngineStatus } from './types';
 
 // Simple Mock Puzzles
@@ -48,33 +49,16 @@ export default function App() {
   const [loadingAi, setLoadingAi] = useState(false);
   
   // Engine State
-  const [engineStatus, setEngineStatus] = useState<EngineStatus>('INITIALIZING');
+  const [engineStatus, setEngineStatus] = useState<EngineStatus>('READY');
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(1);
-
-  // Initialize Engine
-  useEffect(() => {
-    const initEngine = async () => {
-        if (gameMode !== 'FREE') return;
-        
-        setEngineStatus('INITIALIZING');
-        try {
-            await gnugo.init(9, difficulty);
-            setEngineStatus('READY');
-        } catch (e) {
-            console.error("Engine failed", e);
-            setEngineStatus('ERROR');
-            addMessage('sensei', "I'm having trouble connecting to the game engine. We might need to refresh.");
-        }
-    };
-    initEngine();
-  }, [difficulty, gameMode]);
+  const [lastExplanation, setLastExplanation] = useState<string | null>(null);
 
   const addMessage = (sender: 'user' | 'sensei', text: string) => {
     setMessages(prev => [...prev, { id: Date.now().toString(), sender, text }]);
   };
 
   const handlePlay = useCallback(async (c: Coordinate) => {
-    if (engineStatus === 'THINKING' || engineStatus === 'INITIALIZING') return;
+    if (engineStatus === 'THINKING') return;
 
     // Human Move
     const nextState = placeStone(board, c);
@@ -82,26 +66,39 @@ export default function App() {
       setBoard(nextState);
       setHintLevel(HintLevel.NONE); 
       setActiveMarkers([]);
+      // Clear explanation when user moves (new context)
+      setLastExplanation(null);
       
-      // Update Engine with Human Move
-      if (gameMode === 'FREE') {
-          await gnugo.play('BLACK', c, 9);
-      }
-
       // Opponent Response
       if (!nextState.gameOver && gameMode === 'FREE') {
         setEngineStatus('THINKING');
         
-        // Slight delay for UX
+        // Use a simplified delay to ensure UI renders "Thinking..." state
         setTimeout(async () => {
             try {
-                const move = await gnugo.genMove('WHITE', 9);
+                let move: Coordinate | null = null;
+                let explanation: string | null = null;
+
+                if (difficulty === 11) {
+                    // Use Gemini Engine
+                    const result = await getGeminiMove(nextState);
+                    if (result) {
+                      move = result.move;
+                      explanation = result.reason;
+                    }
+                } else {
+                    // Use Monte Carlo Engine
+                    const simCount = getLevelSimulations(difficulty);
+                    move = await generateMove(nextState, simCount);
+                }
+                
                 setEngineStatus('READY');
 
                 if (move) {
                     const aiState = placeStone(nextState, move);
                     if (aiState) {
                         setBoard(aiState);
+                        setLastExplanation(explanation);
                     }
                 } else {
                     addMessage('sensei', "White passes.");
@@ -109,13 +106,12 @@ export default function App() {
             } catch (e) {
                 console.error("Engine Generate Error", e);
                 setEngineStatus('ERROR');
-                // Fallback random move if engine fails
-                addMessage('sensei', "The engine is confused, playing a random move.");
+                addMessage('sensei', "The engine is confused.");
             }
-        }, 100);
+        }, 50);
       }
     }
-  }, [board, gameMode, engineStatus]);
+  }, [board, gameMode, engineStatus, difficulty]);
 
   const handleHelp = async () => {
     const nextLevel = hintLevel < HintLevel.DIRECT_SUGGESTION 
@@ -141,6 +137,19 @@ export default function App() {
     setLoadingAi(false);
   };
 
+  const handleAskWhy = () => {
+    if (!lastExplanation) return;
+    
+    addMessage('user', "Why did you make that move?");
+    
+    // Simulate short "typing" delay
+    setLoadingAi(true);
+    setTimeout(() => {
+      addMessage('sensei', `🤖 ${lastExplanation}`);
+      setLoadingAi(false);
+    }, 600);
+  };
+
   const startPuzzle = (puzzleIndex: number) => {
     setGameMode('PUZZLE');
     setBoard(PUZZLES[puzzleIndex].setup(createBoard(9)));
@@ -151,7 +160,8 @@ export default function App() {
     }]);
     setHintLevel(HintLevel.NONE);
     setActiveMarkers([]);
-    setEngineStatus('READY'); // Engine not needed for puzzles really, but keep ready
+    setEngineStatus('READY'); 
+    setLastExplanation(null);
   };
 
   const resetGame = () => {
@@ -164,7 +174,7 @@ export default function App() {
     }]);
     setHintLevel(HintLevel.NONE);
     setActiveMarkers([]);
-    // Effect will re-trigger init
+    setLastExplanation(null);
   };
 
   return (
@@ -220,15 +230,17 @@ export default function App() {
                  </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-bold text-slate-600">Opponent Strength:</label>
+                  <label className="text-sm font-bold text-slate-600">Opponent:</label>
                   <select 
                     value={difficulty}
                     onChange={(e) => setDifficulty(Number(e.target.value) as DifficultyLevel)}
                     disabled={engineStatus === 'THINKING'}
                     className="p-2 rounded-lg border border-slate-300 bg-slate-50 text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
                   >
+                    <option value={11}>🤖 Gemini 2.5 Flash (AI)</option>
+                    <option disabled>──────────</option>
                     {[...Array(10)].map((_, i) => (
-                      <option key={i+1} value={i+1}>Level {i+1} {i === 0 ? '(Weakest)' : i === 9 ? '(Strongest)' : ''}</option>
+                      <option key={i+1} value={i+1}>Level {i+1} {i === 0 ? '(Beginner)' : i === 9 ? '(Sensei)' : ''}</option>
                     ))}
                   </select>
                 </div>
@@ -250,7 +262,7 @@ export default function App() {
             <GoBoard 
               board={board} 
               onPlay={handlePlay} 
-              interactive={board.turn === 'BLACK' && engineStatus !== 'THINKING' && engineStatus !== 'INITIALIZING'} 
+              interactive={board.turn === 'BLACK' && engineStatus !== 'THINKING'} 
               markers={activeMarkers}
             />
           </div>
@@ -275,7 +287,9 @@ export default function App() {
             messages={messages} 
             loading={loadingAi} 
             onAskHelp={handleHelp} 
+            onAskWhy={handleAskWhy}
             hintCount={hintLevel}
+            canAskWhy={!!lastExplanation && engineStatus !== 'THINKING'}
           />
           
           <div className="mt-6 bg-amber-50 p-4 rounded-xl border border-amber-100">

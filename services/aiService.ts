@@ -61,6 +61,14 @@ export const getSocraticHint = async (
     Response (JSON):
   `;
 
+  // --- LOGGING REQUEST ---
+  console.log("🐼 [Sensei] Request to Gemini:", { 
+      model, 
+      prompt, 
+      level: hintLevel,
+      systemInstruction: SYSTEM_INSTRUCTION 
+  });
+
   try {
     const response = await ai.models.generateContent({
       model,
@@ -74,10 +82,16 @@ export const getSocraticHint = async (
 
     const responseText = response.text || "{}";
     
+    // --- LOGGING RESPONSE ---
+    console.log("🐼 [Sensei] Raw Response from Gemini:", responseText);
+    
     try {
       // Clean up any potential markdown formatting just in case
       const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanJson);
+      
+      console.log("🐼 [Sensei] Parsed JSON:", parsed);
+
       return {
         text: parsed.text || "I'm thinking...",
         markers: parsed.markers || []

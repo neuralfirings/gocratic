@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import { ChatMessage } from '../types';
 
@@ -5,10 +6,19 @@ interface SenseiChatProps {
   messages: ChatMessage[];
   loading: boolean;
   onAskHelp: () => void;
+  onAskWhy: () => void;
   hintCount: number;
+  canAskWhy: boolean;
 }
 
-export const SenseiChat: React.FC<SenseiChatProps> = ({ messages, loading, onAskHelp, hintCount }) => {
+export const SenseiChat: React.FC<SenseiChatProps> = ({ 
+  messages, 
+  loading, 
+  onAskHelp, 
+  onAskWhy, 
+  hintCount,
+  canAskWhy 
+}) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,12 +79,12 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({ messages, loading, onAsk
       </div>
 
       {/* Actions */}
-      <div className="p-4 bg-white border-t border-slate-100">
+      <div className="p-4 bg-white border-t border-slate-100 flex gap-2">
         <button
           onClick={onAskHelp}
           disabled={loading}
           className={`
-            w-full py-3 px-4 rounded-xl font-bold text-white shadow-md transition-all
+            flex-1 py-3 px-2 rounded-xl font-bold text-white shadow-md transition-all text-sm
             flex items-center justify-center gap-2
             ${loading 
               ? 'bg-slate-300 cursor-not-allowed' 
@@ -82,7 +92,22 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({ messages, loading, onAsk
           `}
         >
           <span>💡</span>
-          {hintCount === 0 ? "I'm stuck, help!" : hintCount === 1 ? "Can you be more specific?" : "Just tell me where!"}
+          {hintCount === 0 ? "Hint" : hintCount === 1 ? "More Info" : "Solution"}
+        </button>
+
+        <button
+          onClick={onAskWhy}
+          disabled={!canAskWhy || loading}
+          className={`
+            flex-1 py-3 px-2 rounded-xl font-bold text-white shadow-md transition-all text-sm
+            flex items-center justify-center gap-2
+            ${!canAskWhy || loading
+              ? 'bg-slate-300 cursor-not-allowed text-slate-500' 
+              : 'bg-indigo-500 hover:bg-indigo-600 hover:scale-[1.02] active:scale-95'}
+          `}
+        >
+          <span>🤔</span>
+          Why?
         </button>
       </div>
     </div>

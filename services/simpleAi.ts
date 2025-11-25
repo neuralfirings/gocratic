@@ -1,48 +1,92 @@
-import { BoardState, Coordinate } from "../types";
-import { placeStone, getLegalMoves, cloneBoard } from "./gameLogic";
 
-// Difficulty settings correspond to number of simulations
-export const DIFFICULTIES = {
-    BEGINNER: 10,    // ~30k (Basically random but avoids immediate death)
-    EASY: 50,        // ~25k
-    MEDIUM: 200,     // ~20k
-    HARD: 800,       // ~15k
-    SENSEI: 2000     // ~12k (Slow in JS)
+import { BoardState, Coordinate } from "../types";
+import { placeStone, cloneBoard } from "./gameLogic";
+
+// Map Levels 1-10 to Simulation Counts
+// Optimized engine allows for higher counts
+const LEVEL_TO_SIMULATIONS = [
+    10,    // Level 0 (Fallback)
+    10,    // Level 1: Beginner (Instant, random-ish)
+    50,    // Level 2
+    100,   // Level 3
+    200,   // Level 4
+    400,   // Level 5: Medium
+    800,   // Level 6
+    1500,  // Level 7: Hard
+    2500,  // Level 8
+    3500,  // Level 9
+    5000   // Level 10: Sensei (Deep search)
+];
+
+export const getLevelSimulations = (level: number): number => {
+    const idx = Math.min(Math.max(level, 1), 10);
+    return LEVEL_TO_SIMULATIONS[idx] || 50;
 };
 
-export type DifficultyLevel = keyof typeof DIFFICULTIES;
+// Helper: Fisher-Yates shuffle
+const shuffleArray = (array: any[]) => {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+};
 
-// Simulation playout: Play random moves until pass or max moves
+// Optimized Playout: Avoids calculating ALL legal moves at every step
+// Instead, tries random empty spots until one works.
 const playout = (startState: BoardState): number => {
     let state = cloneBoard(startState);
     let passes = 0;
     let moves = 0;
-    const maxMoves = state.size * state.size * 2;
+    // Cap game length to prevent infinite loops
+    const maxMoves = state.size * state.size * 1.5; 
+
+    // Pre-calculate empty spots once per playout to save time? 
+    // Actually, just iterating coordinates is fast enough if we shuffle.
+    // To make it super fast, we generate a coordinate list once.
+    const allCoords: Coordinate[] = [];
+    for(let y=0; y<state.size; y++) {
+        for(let x=0; x<state.size; x++) {
+            allCoords.push({x, y});
+        }
+    }
 
     while (passes < 2 && moves < maxMoves) {
-        const legalMoves = getLegalMoves(state);
+        let moved = false;
         
-        if (legalMoves.length === 0) {
+        // Fast Random Move Selection
+        // 1. Identify empty spots (cheap)
+        const candidates = allCoords.filter(c => !state.stones.has(`${c.x},${c.y}`));
+        
+        if (candidates.length === 0) {
             passes++;
-            // Switch turn manually if pass
             state.turn = state.turn === 'BLACK' ? 'WHITE' : 'BLACK';
         } else {
-            passes = 0;
-            // Pick random move
-            const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
-            const nextState = placeStone(state, randomMove);
-            if (nextState) {
-                state = nextState;
-            } else {
-                // Should not happen if getLegalMoves works, but safety break
+            // 2. Shuffle empty spots
+            // Optimization: We don't need a full perfect shuffle, just random pick
+            // But shuffling ensures we try others if first fails (suicide)
+            shuffleArray(candidates);
+            
+            // 3. Try placing until valid
+            for (const cand of candidates) {
+                const nextState = placeStone(state, cand);
+                if (nextState) {
+                    state = nextState;
+                    moved = true;
+                    passes = 0;
+                    break;
+                }
+            }
+
+            if (!moved) {
+                // No valid moves (all were suicides or ko)
                 passes++;
+                state.turn = state.turn === 'BLACK' ? 'WHITE' : 'BLACK';
             }
         }
         moves++;
     }
 
-    // Score: Simplified Area Scoring (Stones on board + captured prisoners)
-    // Real scoring is complex, but for MCTS this heuristic usually works for winning.
+    // Score: Simplified Area Scoring
     let score = state.captures[startState.turn] - state.captures[startState.turn === 'BLACK' ? 'WHITE' : 'BLACK'];
     
     // Add stone count difference
@@ -56,42 +100,43 @@ const playout = (startState: BoardState): number => {
     return score + (myStones - oppStones);
 };
 
-// Async function to not freeze UI
 export const generateMove = async (
     board: BoardState, 
-    difficulty: DifficultyLevel = 'EASY'
+    simulations: number = 50
 ): Promise<Coordinate | null> => {
     
-    const candidates = getLegalMoves(board);
-    if (candidates.length === 0) return null;
+    // For the root node (actual move), we DO need all legal moves to choose from
+    const legalCandidates: Coordinate[] = [];
+    for (let y = 0; y < board.size; y++) {
+        for (let x = 0; x < board.size; x++) {
+            const c = {x, y};
+            // Check legality by actually placing (this handles suicide/ko)
+            if (!board.stones.has(`${x},${y}`) && placeStone(board, c)) {
+                legalCandidates.push(c);
+            }
+        }
+    }
 
-    // Optimization: If only 1 move, just take it
-    if (candidates.length === 1) return candidates[0];
-
-    // For very low difficulty, add randomness to the top selection
-    // so it doesn't always play the "best" move it found.
-    const simulations = DIFFICULTIES[difficulty];
+    if (legalCandidates.length === 0) return null;
+    if (legalCandidates.length === 1) return legalCandidates[0];
     
-    const scores = new Map<number, number>(); // index -> wins/score
+    const scores = new Map<number, number>(); // index -> total score
 
     // Run simulations
-    // We batch them to allow UI updates
     const batchSize = 10;
-    for (let i = 0; i < candidates.length; i++) {
+    for (let i = 0; i < legalCandidates.length; i++) {
         let totalScore = 0;
         for (let s = 0; s < simulations; s++) {
-            // Yield to event loop every batch
+            // Yield to event loop to keep UI responsive
             if (s % batchSize === 0) {
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
             
-            // Do a playout
-            // We simulate making the candidate move first
-            const nextState = placeStone(board, candidates[i]);
+            const nextState = placeStone(board, legalCandidates[i]);
             if (nextState) {
                 totalScore += playout(nextState);
             } else {
-                totalScore -= 1000; // Invalid move logic fallback
+                totalScore -= 1000;
             }
         }
         scores.set(i, totalScore);
@@ -108,5 +153,5 @@ export const generateMove = async (
         }
     });
 
-    return candidates[bestIndex];
+    return legalCandidates[bestIndex];
 };
