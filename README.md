@@ -11,18 +11,28 @@ GoCratic is a web-based Go (Baduk/Weiqi) learning platform designed for children
     3.  **Direct Suggestion**: Shows the best move when the player is completely stuck.
 *   **Visual Annotation**: The AI draws symbols (△, ○, □, ✕) directly on the board to illustrate concepts like "cutting points" or "territory boundaries."
 *   **Interactive Chat**: A friendly chat interface where the AI explains Go concepts in simple language.
+*   **Model Selection**: Toggle between different Gemini models (Flash, Flash-Lite, Pro) for the tutor to balance speed vs. reasoning depth.
 
-### 🎮 Gameplay & Engine
-*   **Adjustable Difficulty**: Select from 10 difficulty levels.
+### 🎮 Gameplay & Opponents
 *   **Dual Engine Support**:
-    *   **Default**: Pure JavaScript Monte Carlo engine (Instant start, no downloads).
-    *   **Advanced**: GnuGo WebAssembly engine (Standard strength, requires setup).
+    *   **Gemini AI (Online)**: Play against Google's Gemini models (2.5 Flash, 2.5 Pro, 3.0 Pro). These models provide strategic, natural-feeling moves.
+    *   **Monte Carlo (Offline)**: A pure JavaScript engine that runs entirely in your browser.
+        *   **Adjustable Depth**: Configure the strength by setting the number of simulations per spot (e.g., 2 sims/spot for instant moves, 200 sims/spot for stronger play).
+*   **Controls**:
+    *   **Undo/Redo**: Navigate through game history.
+    *   **Cancel**: Stop the AI from thinking if it's taking too long.
+    *   **Make Move**: Force the AI to play immediately (or play for the opponent).
+
+### 🛠️ Tools & Modes
+*   **Setup Mode**: Create custom board positions to test scenarios.
+    *   *Tools*: Alternate colors, Black Only, White Only, Eraser.
+*   **Save/Load**: Export your game state to a JSON file and resume it later.
 *   **Puzzle Mode**: Includes specific scenarios (e.g., "Capture the Stone", "Stop the Invasion") to practice tactical skills.
 
 ### 🎨 User Interface
 *   **Responsive Design**: Works on desktop and tablet sizes.
 *   **Visuals**: SVG-based board with wood textures and clean, distinct stone rendering.
-*   **Real-time Stats**: Tracks captures and turn history.
+*   **Real-time Cost Tracking**: Displays estimated API cost for the current session when using Gemini models.
 
 ---
 
@@ -37,8 +47,9 @@ The application is built as a Single Page Application (SPA) using React.
 
 ### Services
 *   **`gameLogic.ts`**: Pure TypeScript implementation of Go rules (liberties, captures, suicide checks).
-*   **`aiService.ts`**: Interface for the Google Gemini API (`@google/genai`).
-*   **`gnugoService.ts`**: The bridge to the Go engine. It can be configured to use a local JS implementation or the GnuGo WASM binary.
+*   **`aiService.ts`**: Interface for the Google Gemini API (`@google/genai`) used by Panda Sensei.
+*   **`geminiEngine.ts`**: Interface for using Gemini as a competitive Go opponent.
+*   **`simpleAi.ts`**: A custom Monte Carlo Tree Search implementation in pure JavaScript for offline play.
 
 ---
 
@@ -62,7 +73,7 @@ The application is built as a Single Page Application (SPA) using React.
     ```
 
 3.  **Configure API Key**
-    To enable the Socratic AI features (Panda Sensei), you need a **Google Gemini API Key**.
+    To enable the Socratic AI features (Panda Sensei) and Gemini Opponents, you need a **Google Gemini API Key**.
     1.  Get a free key from [Google AI Studio](https://aistudio.google.com/).
     2.  Create a `.env` file in the root directory.
     3.  Add the key:
@@ -78,36 +89,17 @@ The application is built as a Single Page Application (SPA) using React.
 
 ---
 
-## Game Engine Configuration
+## Game Configuration
 
-### Option 1: Simple Engine (Default - No Setup)
-The app comes pre-configured with `services/simpleAi.ts`. This is a custom Monte Carlo engine written in pure JavaScript. 
-*   **Pros**: Works immediately, no extra files, very fast.
-*   **Cons**: Playing strength tops out around 15k.
+### Offline Play
+By selecting the **Monte Carlo** opponent in the dropdown, the game runs 100% locally.
+*   **Speed**: Faster levels (2-10 simulations)， keep in mind each simulation iterates by playing randomly until the game is finished. So this can take a while. 
+*   **Strength**: Higher levels (75-200 simulations) take longer (10-30s) 
 
-### Option 2: GnuGo WASM (Advanced - Recommended for Strength)
-If you want to use the standard **GnuGo** engine (which supports official ranking levels 1-10), you must set up the WebAssembly files locally. This fixes the `NetworkError` or `CORS` issues often seen when trying to load WASM from CDNs.
-
-1.  **Download the Engine Files**:
-    Download `gnugo.js` and `gnugo.wasm` (version 1.0 or similar) from a source like [js-gnugo](https://github.com/jmaxxo/js-gnugo) or extract them from the npm package.
-
-2.  **Place in Public Folder**:
-    Move both files into your project's `public/` folder:
-    *   `public/gnugo.js`
-    *   `public/gnugo.wasm`
-
-3.  **Update `services/gnugoService.ts`**:
-    Modify the `WORKER_SCRIPT` constant to load from your local public folder instead of the CDN:
-    
-    ```typescript
-    // Change this line:
-    // importScripts('https://unpkg.com/js-gnugo@1.0.0/gnugo.js');
-    
-    // To this:
-    importScripts('/gnugo.js');
-    ```
-
-4.  **Restart**: Refresh your browser. The engine will now load the local WASM file.
+### Online Play (Gemini)
+By selecting a **Gemini** model (e.g., 2.5 Flash), the game sends the board state to Google's API to generate a move.
+*   **Reasoning**: The AI also returns a short "reason" for its move, which is displayed in the chat log context if queried (implementation detail).
+*   **Cost**: Uses your API quota. Flash models are very cheap/free; Pro models cost more.
 
 ---
 
@@ -115,7 +107,7 @@ If you want to use the standard **GnuGo** engine (which supports official rankin
 
 ### Runtime
 *   **React 19**: UI Framework.
-*   **@google/genai**: SDK for interacting with the Gemini 2.5 Flash model.
+*   **@google/genai**: SDK for interacting with Gemini models.
 *   **Tailwind CSS**: Utility-first CSS framework.
 
 ### Dev/Build

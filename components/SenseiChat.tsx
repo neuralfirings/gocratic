@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from '../types';
 
@@ -6,12 +5,16 @@ interface SenseiChatProps {
   messages: ChatMessage[];
   loading: boolean;
   onSendMessage: (text: string) => void;
+  senseiModel: string;
+  onModelChange: (model: string) => void;
 }
 
 export const SenseiChat: React.FC<SenseiChatProps> = ({ 
   messages, 
   loading, 
-  onSendMessage
+  onSendMessage,
+  senseiModel,
+  onModelChange
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
@@ -37,16 +40,30 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[500px] w-full lg:w-96 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden">
+    <div className="flex flex-col h-[600px] w-full lg:w-96 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden">
       {/* Header */}
-      <div className="bg-indigo-600 p-4 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-2xl border-2 border-white">
-          🐼
+      <div className="bg-indigo-600 p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-2xl border-2 border-white">
+            🐼
+            </div>
+            <div>
+            <h2 className="text-white font-bold text-lg leading-tight">Panda Sensei</h2>
+            <p className="text-indigo-200 text-xs">AI Tutor</p>
+            </div>
         </div>
-        <div>
-          <h2 className="text-white font-bold text-lg">Panda Sensei</h2>
-          <p className="text-indigo-200 text-xs">Ask me anything about the game!</p>
-        </div>
+        
+        {/* Model Selector */}
+        <select 
+            value={senseiModel}
+            onChange={(e) => onModelChange(e.target.value)}
+            className="text-xs bg-indigo-700 text-white border border-indigo-500 rounded px-2 py-1 outline-none hover:bg-indigo-600 focus:ring-1 focus:ring-indigo-300 transition"
+        >
+            <option value="gemini-2.5-flash">2.5 Flash</option>
+            <option value="gemini-flash-lite-latest">2.5 Flash-Lite</option>
+            <option value="gemini-2.5-pro-preview">2.5 Pro</option>
+            <option value="gemini-3-pro-preview">3.0 Pro</option>
+        </select>
       </div>
 
       {/* Messages */}

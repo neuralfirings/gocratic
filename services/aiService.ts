@@ -1,7 +1,7 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { BoardState, ChatMessage, Marker } from "../types";
 import { boardToString } from "./gameLogic";
+import { toGtpCoordinate, fromGtpCoordinate } from "./gtpUtils";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
@@ -13,17 +13,21 @@ Teach the user through the Socratic method.
 **DO NOT** simply tell the user the best move unless they are visibly frustrated or explicitly ask for the "answer" after trying to find it themselves.
 Instead, guide them to the solution by asking questions about the board state.
 
-STRATEGY:
-1. **Analyze** the opponent's last move. What are they threatening?
-2. **Highlight** key areas using markers (weak groups, cutting points, big open spaces).
-3. **Ask** the user questions like:
-   - "What do you think White is trying to do here (marked with △)?"
-   - "Is your group safe if you play elsewhere?"
-   - "Which direction looks biggest to you, ○ or □?"
+CONTEXT AWARENESS & CONTINUITY:
+- Check the [CHAT AND PLAY HISTORY] carefully.
+- **CRITICAL**: If the user asks for a hint (or says "Give me a hint") multiple times for the **SAME board state** (meaning no moves have been played since your last message):
+    1. **DO NOT** greet them again (no "Hello", "Hi there", "Welcome back").
+    2. **DO NOT** repeat the same observation you just made.
+    3. **CONTINUE** the thought naturally. Treat it as one long conversation.
+       - *Example*: If you previously said "White is threatening D4", and they ask for a hint again, say: "If you ignore that threat, White might cut you off. Can you find a move to connect?"
+    4. **BECOME MORE SPECIFIC** with each request:
+       - **1st Request**: Broad observation. Point out the opponent's last move (△). "What is White trying to do?"
+       - **2nd Request**: Specific suggestion. Mark a candidate move for the student (○). "What happens if you play at ○ (C3)?"
+       - **3rd Request**: Explanation/Answer. "Playing at ○ (C3) protects your territory."
 
 INPUT:
-1. Current Board State (ASCII).
-2. Chat History (Previous conversation).
+1. Current Board State (ASCII with Move History).
+2. Chat and Play History (Interleaved timeline of what happened).
 3. User's new message/question.
 
 OUTPUT FORMAT:
@@ -31,17 +35,20 @@ You MUST return a RAW JSON object.
 DO NOT wrap the output in markdown code blocks (like \`\`\`json).
 Format:
 {
-  "text": "Your helpful response here...",
+  "text": "Your helpful response here including coordinates like △ (D4)...",
   "markers": [
-    { "x": 4, "y": 4, "type": "TRIANGLE" },
-    { "x": 3, "y": 3, "type": "CIRCLE" }
+    { "coordinates": "D4", "type": "TRIANGLE" },
+    { "coordinates": "C3", "type": "CIRCLE" }
   ]
 }
 
 MARKER USAGE:
 - Use markers to illustrate your point visually on the board.
 - Types: "TRIANGLE" (△) for opponent moves/threats, "CIRCLE" (○) for suggestions, "SQUARE" (□) for territory/key points, "X" (✕) for bad moves.
-- In your "text", refer to these locations using the unicode symbols (△, ○, □, ✕) so the user knows what you are talking about. DO NOT use coordinates like "D4" in the text.
+- **IMPORTANT**: In your "text", ALWAYS include the specific coordinate in parentheses when you mention a symbol. 
+  - CORRECT: "Look at the stone marked with △ (D4)."
+  - INCORRECT: "Look at the stone marked with △."
+  - INCORRECT: "Look at D4." (Better to include the symbol too).
 
 TONE:
 - Encouraging, simple English, friendly.
@@ -51,27 +58,49 @@ TONE:
 export const getSenseiResponse = async (
   board: BoardState, 
   history: ChatMessage[],
-  userMessage: string
+  userMessage: string,
+  modelName: string = "gemini-2.5-flash"
 ): Promise<{ text: string; markers?: Marker[], cost: number }> => {
   
   if (!process.env.API_KEY) {
     return { text: "I need an API Key to see the board! (Check metadata.json configuration)", cost: 0 };
   }
 
-  const model = "gemini-2.5-flash";
   const boardAscii = boardToString(board);
   
-  // Serialize history (limit to last 10 messages to save context window/cost)
-  const recentHistory = history.slice(-10).map(msg => 
-    `${msg.sender === 'user' ? 'Student' : 'Sensei'}: ${msg.text}`
-  ).join('\n');
+  // --- Build Interleaved History ---
+  let interleavedHistory = "";
+  const maxMoves = board.history.length;
+
+  for (let t = 0; t <= maxMoves; t++) {
+      // 1. Add Chat Messages that happened at this state
+      const chatsAtThisTurn = history.filter(m => m.moveNumber === t);
+      chatsAtThisTurn.forEach(msg => {
+          const prefix = msg.sender === 'user' ? 'Student' : 'Sensei';
+          interleavedHistory += `    ${prefix}: ${msg.text}\n`;
+      });
+
+      // 2. Add the Move that happened
+      if (t < maxMoves) {
+          const move = board.history[t];
+          const coord = toGtpCoordinate(move.coordinate, board.size);
+          const color = move.color === 'BLACK' ? 'B' : 'W';
+          interleavedHistory += `    (${color}@${coord})\n`;
+      }
+  }
+
+  // Truncate history
+  const historyLines = interleavedHistory.split('\n');
+  if (historyLines.length > 50) {
+      interleavedHistory = "...(older history truncated)...\n" + historyLines.slice(-50).join('\n');
+  }
 
   const prompt = `
     [CURRENT BOARD STATE]
     ${boardAscii}
     
-    [CHAT HISTORY]
-    ${recentHistory}
+    [CHAT AND PLAY HISTORY]
+    ${interleavedHistory}
     
     [STUDENT'S NEW MESSAGE]
     "${userMessage}"
@@ -81,11 +110,11 @@ export const getSenseiResponse = async (
 
   // Define full payload
   const requestPayload = {
-    model,
+    model: modelName,
     contents: prompt,
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
-      temperature: 0.7, // Slightly higher for more natural conversation
+      temperature: 0.7, 
       responseMimeType: "application/json"
     }
   };
@@ -101,10 +130,22 @@ export const getSenseiResponse = async (
     // --- LOGGING RESPONSE ---
     console.log("🐼 [Sensei] Raw Response:", responseText);
 
-    // Calculate Cost (Flash Pricing Estimate)
+    // Calculate Cost
     const inputTokens = (prompt.length + SYSTEM_INSTRUCTION.length) / 4;
     const outputTokens = responseText.length / 4;
-    const estimatedCost = (inputTokens / 1000000 * 0.075) + (outputTokens / 1000000 * 0.30);
+    
+    let inputPrice = 0.075;
+    let outputPrice = 0.30;
+
+    if (modelName.includes('pro')) {
+        inputPrice = 1.25;
+        outputPrice = 5.00;
+    } else if (modelName.includes('lite')) {
+        inputPrice = 0.075; // Estimate similar to Flash but typically cheaper/faster
+        outputPrice = 0.30;
+    }
+
+    const estimatedCost = (inputTokens / 1000000 * inputPrice) + (outputTokens / 1000000 * outputPrice);
     
     try {
       // 1. Strip Markdown
@@ -113,16 +154,25 @@ export const getSenseiResponse = async (
         .replace(/```/g, '')
         .trim();
 
-      // 2. Fix bad control characters (unescaped newlines inside strings)
-      // This regex looks for newlines that are NOT followed by a control char like ", }, or ]
-      // It's a heuristic, but often helps with "bad control character" errors.
-      // cleanJson = cleanJson.replace(/(?<=:|")\n(?=")/g, "\\n"); 
-      
+      // 2. Parse
       const parsed = JSON.parse(cleanJson);
       
+      // 3. Convert Markers (GTP String -> {x,y})
+      const markers: Marker[] = [];
+      if (Array.isArray(parsed.markers)) {
+          parsed.markers.forEach((m: any) => {
+              if (m.coordinates && m.type) {
+                  const coord = fromGtpCoordinate(m.coordinates, board.size);
+                  if (coord) {
+                      markers.push({ ...coord, type: m.type });
+                  }
+              }
+          });
+      }
+
       return {
         text: parsed.text || "I'm listening...",
-        markers: parsed.markers || [],
+        markers: markers,
         cost: estimatedCost
       };
     } catch (e) {

@@ -1,5 +1,6 @@
 
 import { BoardState, StoneColor, Coordinate } from '../types';
+import { toGtpCoordinate, COLS } from './gtpUtils';
 
 export const createBoard = (size: number = 9): BoardState => ({
   size,
@@ -131,9 +132,6 @@ export const placeStone = (currentState: BoardState, move: Coordinate): BoardSta
     }
   });
 
-  // Ko rule (simplified: just don't allow immediate recapture of same board state)
-  // For this lightweight version, we skip complex superko checks.
-
   return {
     ...currentState,
     stones: nextStones,
@@ -150,15 +148,58 @@ export const placeStone = (currentState: BoardState, move: Coordinate): BoardSta
   };
 };
 
+/**
+ * For Setup Mode: Places or removes a stone directly without game rules (capture/suicide).
+ * If color is null, it removes the stone.
+ * Resets history if used for non-alternate setup.
+ */
+export const setStone = (currentState: BoardState, move: Coordinate, color: StoneColor | null): BoardState => {
+    const nextStones = new Map(currentState.stones);
+    const key = `${move.x},${move.y}`;
+
+    if (color === null) {
+        nextStones.delete(key);
+    } else {
+        nextStones.set(key, color);
+    }
+
+    // When forcibly setting stones in setup mode (not alternate play), we generally don't record it as a "move"
+    // However, if we are in "Alternate" mode in the app, we use placeStone instead.
+    // This function is for Black Only / White Only mode.
+
+    return {
+        ...currentState,
+        stones: nextStones,
+        // In static setup, we usually don't change turn or history until play starts
+        history: [], // Reset history because we are redefining the "Start" state
+        lastMove: null
+    };
+};
+
 export const boardToString = (state: BoardState): string => {
   let boardStr = `Size: ${state.size}x${state.size}\n`;
   boardStr += `Current Turn: ${state.turn}\n`;
   boardStr += `Captures: Black ${state.captures.BLACK}, White ${state.captures.WHITE}\n`;
-  boardStr += `Last Move: ${state.lastMove ? `${state.lastMove.x},${state.lastMove.y}` : 'None'}\n\n`;
   
-  boardStr += "  " + Array.from({length: state.size}, (_, i) => i).join(" ") + "\n";
+  // Add list of previous moves in GTP format
+  const movesStr = state.history.map(h => {
+    const color = h.color === 'BLACK' ? 'B' : 'W';
+    const coord = toGtpCoordinate(h.coordinate, state.size);
+    return `${color}@${coord}`;
+  }).join(', ');
+  boardStr += `Previous Moves: ${movesStr}\n`;
+
+  const lastMoveGtp = state.lastMove ? toGtpCoordinate(state.lastMove, state.size) : 'None';
+  const lastMoveColor = state.turn === 'WHITE' ? 'B' : 'W'; // If it's White's turn, Black moved last
+  boardStr += `Last Move: ${state.lastMove ? `${lastMoveColor}@${lastMoveGtp}` : 'None'}\n\n`;
+  
+  // Use GTP Columns (A, B, C... excluding I)
+  boardStr += "   " + Array.from({length: state.size}, (_, i) => COLS[i]).join(" ") + "\n";
+  
   for (let y = 0; y < state.size; y++) {
-    let row = `${y} `;
+    // Row Labels (9 down to 1)
+    const rowLabel = (state.size - y).toString().padStart(2, ' ');
+    let row = `${rowLabel} `;
     for (let x = 0; x < state.size; x++) {
       const stone = state.stones.get(`${x},${y}`);
       if (stone === 'BLACK') row += "B ";
@@ -182,10 +223,7 @@ export const getLegalMoves = (state: BoardState): Coordinate[] => {
   for (let y = 0; y < state.size; y++) {
     for (let x = 0; x < state.size; x++) {
       const coord = { x, y };
-      // Check if spot is empty first
       if (!state.stones.has(`${x},${y}`)) {
-        // Check if move is legal by attempting to place stone
-        // This covers suicide, ko, etc.
         if (placeStone(state, coord)) {
           moves.push(coord);
         }

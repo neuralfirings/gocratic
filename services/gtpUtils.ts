@@ -1,7 +1,7 @@
 
 import { Coordinate } from '../types';
 
-const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ"; // Skips 'I'
+export const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ"; // Skips 'I'
 
 // Convert Board Coordinate (0,0 is Top-Left) to GTP (A19 is Top-Left)
 export const toGtpCoordinate = (c: Coordinate, size: number): string => {
@@ -23,4 +23,12 @@ export const fromGtpCoordinate = (gtp: string, size: number): Coordinate | null 
   if (x === -1 || isNaN(y)) return null;
   
   return { x, y };
+};
+
+export const getColLabel = (x: number): string => {
+  return COLS[x] || '';
+};
+
+export const getRowLabel = (y: number, size: number): string => {
+  return (size - y).toString();
 };

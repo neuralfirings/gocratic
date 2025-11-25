@@ -1,7 +1,7 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { BoardState, Coordinate } from "../types";
 import { boardToString, getLegalMoves } from "./gameLogic";
+import { fromGtpCoordinate } from "./gtpUtils";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
@@ -17,13 +17,13 @@ INPUT:
 OUTPUT:
 - Strictly a RAW JSON object. 
 - DO NOT wrap in markdown code blocks.
-- Format: { "x": number, "y": number, "reason": "One sentence explanation." }
-- Coordinate System: 0-indexed. (0,0) is the TOP-LEFT corner. x is column, y is row.
+- Format: { "coordinate": "D4", "reason": "One sentence explanation." }
+- Coordinates: Standard Go coordinates (e.g. A1, D4, J9).
+- If passing, return { "coordinate": "PASS", "reason": "Pass" }.
 
 RULES:
 1. Do NOT provide explanations outside the JSON. ONLY the JSON object.
 2. Ensure the move is legal (not on top of an existing stone).
-3. If passing is the best move (or no moves left), return { "x": -1, "y": -1, "reason": "Pass" }.
 `;
 
 export interface GeminiMoveResult {
@@ -47,7 +47,7 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
     You are playing: ${board.turn}
     Board Size: ${board.size}x${board.size}
     
-    Return the RAW JSON object with move coordinates and reasoning. No Markdown.
+    Return the RAW JSON object with "coordinate" (e.g. C3) and "reason". No Markdown.
   `;
 
   // Define full payload
@@ -56,7 +56,7 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
     contents: prompt,
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
-      temperature: 0.1, // Even lower temp for Pro models to be precise
+      temperature: 0.1, 
       responseMimeType: "application/json"
     }
   };
@@ -73,46 +73,49 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
     // --- LOGGING RESPONSE ---
     console.log("🤖 [Gemini Engine] Raw Response:", responseText);
     
-    // 3. Calculate Cost (Estimate: 1 token ~= 4 chars)
+    // 3. Calculate Cost
     const inputTokens = (prompt.length + SYSTEM_INSTRUCTION.length) / 4;
     const outputTokens = responseText.length / 4;
     
-    // Pricing (Approximate per 1M tokens)
-    const isPro = modelName.includes('pro');
-    const inputPrice = isPro ? 1.25 : 0.075; 
-    const outputPrice = isPro ? 5.00 : 0.30;
+    let inputPrice = 0.075;
+    let outputPrice = 0.30;
+
+    if (modelName.includes('pro')) {
+        inputPrice = 1.25;
+        outputPrice = 5.00;
+    } else if (modelName.includes('lite')) {
+        inputPrice = 0.075; // Estimate
+        outputPrice = 0.30;
+    }
     
     const estimatedCost = (inputTokens / 1000000 * inputPrice) + (outputTokens / 1000000 * outputPrice);
 
-    // 4. Parse Response (Strip Markdown first)
+    // 4. Parse Response
     let cleanJson = responseText
         .replace(/```json/gi, '') 
         .replace(/```/g, '')
         .trim();
 
-    // Try-catch block for parsing
     let parsed;
     try {
         parsed = JSON.parse(cleanJson);
     } catch (e) {
         console.error("Gemini Engine JSON Parse Error", e);
-        console.log("Failed JSON content:", cleanJson);
         return null;
     }
 
     console.log("🤖 [Gemini Engine] Parsed Move Object:", parsed);
     
     // Check for Pass
-    if (parsed.x === -1 && parsed.y === -1) {
+    if (!parsed.coordinate || parsed.coordinate.toUpperCase() === 'PASS') {
       return null;
     }
 
-    // 5. Validation
-    const proposedMove: Coordinate = { x: parsed.x, y: parsed.y };
+    // 5. Convert & Validation
+    const proposedMove = fromGtpCoordinate(parsed.coordinate, board.size);
     
-    // Basic bounds check
-    if (proposedMove.x < 0 || proposedMove.x >= board.size || proposedMove.y < 0 || proposedMove.y >= board.size) {
-        console.warn("Gemini suggested out-of-bounds move:", proposedMove);
+    if (!proposedMove) {
+        console.warn("Gemini suggested invalid coordinate:", parsed.coordinate);
         return null;
     }
 

@@ -48,6 +48,7 @@ export interface ChatMessage {
   sender: 'user' | 'sensei';
   text: string;
   markers?: Marker[]; // Markers associated with this message
+  moveNumber: number; // The turn count when this message was sent (for context interleaving)
 }
 
 export interface Puzzle {
@@ -62,3 +63,7 @@ export interface Puzzle {
 export type DifficultyLevel = number; // 1-10
 
 export type EngineStatus = 'INITIALIZING' | 'READY' | 'THINKING' | 'ERROR';
+
+export type GamePhase = 'PLAY' | 'SETUP';
+
+export type SetupTool = 'ALTERNATE' | 'BLACK_ONLY' | 'WHITE_ONLY' | 'CLEAR';
