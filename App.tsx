@@ -153,7 +153,8 @@ export default function App() {
         }
     } catch (e: any) {
         if (e.message === 'Aborted' || e.name === 'AbortError') {
-            if (process.env.NODE_ENV !== 'production') {
+            // Only log if not in production (checking hostname for cloud run)
+            if (!window.location.hostname.includes('run.app')) {
               console.log("AI Cancelled");
             }
             setEngineStatus('READY');
@@ -448,12 +449,12 @@ export default function App() {
           <div className="flex flex-col gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             {/* Stats Row */}
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-              <div className="flex items-center gap-4">
-                <div className={`px-4 h-12 rounded-lg font-bold flex items-center gap-2 ${board.turn === 'BLACK' ? 'bg-slate-900 text-white ring-2 ring-indigo-500 ring-offset-2' : 'bg-slate-100 text-slate-400'}`}>
+              <div className="flex items-center gap-4 h-12">
+                <div className={`px-4 h-full rounded-lg font-bold flex items-center gap-2 ${board.turn === 'BLACK' ? 'bg-slate-900 text-white ring-2 ring-indigo-500 ring-offset-2' : 'bg-slate-100 text-slate-400'}`}>
                   <div className="w-3 h-3 rounded-full bg-slate-900 border border-slate-600"></div>
                   Black {board.captures.BLACK > 0 && <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full">+{board.captures.BLACK}</span>}
                 </div>
-                <div className={`px-4 h-12 rounded-lg font-bold flex items-center gap-2 ${board.turn === 'WHITE' ? 'bg-white border border-slate-300 text-slate-900 ring-2 ring-indigo-500 ring-offset-2' : 'bg-slate-100 text-slate-400'}`}>
+                <div className={`px-4 h-full rounded-lg font-bold flex items-center gap-2 ${board.turn === 'WHITE' ? 'bg-white border border-slate-300 text-slate-900 ring-2 ring-indigo-500 ring-offset-2' : 'bg-slate-100 text-slate-400'}`}>
                   <div className="w-3 h-3 rounded-full bg-white border border-slate-300"></div>
                   White {board.captures.WHITE > 0 && <span className="text-xs bg-slate-200 px-2 py-0.5 rounded-full">+{board.captures.WHITE}</span>}
                   
@@ -464,7 +465,7 @@ export default function App() {
                   )}
 
                   {engineStatus !== 'THINKING' && board.turn === 'WHITE' && gameMode === 'FREE' && (
-                     <button onClick={handleMakeMove} className="px-2 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 text-xs font-semibold rounded border border-indigo-200 transition">
+                     <button onClick={handleMakeMove} className="ml-2 px-2 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 text-xs font-semibold rounded border border-indigo-200 transition">
                         Make Move
                      </button>
                   )}

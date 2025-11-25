@@ -63,7 +63,8 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
   };
 
   // --- LOGGING REQUEST ---
-  if (process.env.NODE_ENV !== 'production') {
+  // Only log if not in production (Cloud Run)
+  if (!window.location.hostname.includes('run.app')) {
     console.log("🤖 [Gemini Engine] FULL API PAYLOAD:", requestPayload);
   }
 
@@ -74,7 +75,7 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
     const responseText = response.text || "{}";
     
     // --- LOGGING RESPONSE ---
-    if (process.env.NODE_ENV !== 'production') {
+    if (!window.location.hostname.includes('run.app')) {
       console.log("🤖 [Gemini Engine] Raw Response:", responseText);
     }
     
@@ -109,7 +110,7 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
         return null;
     }
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (!window.location.hostname.includes('run.app')) {
       console.log("🤖 [Gemini Engine] Parsed Move Object:", parsed);
     }
     

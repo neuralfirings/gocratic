@@ -48,7 +48,8 @@ class LocalEngineService {
     const levelIndex = Math.min(Math.max(this.level, 0), 10);
     const simulationCount = LEVEL_TO_SIMULATIONS[levelIndex];
 
-    if (process.env.NODE_ENV !== 'production') {
+    // Only log if not in production (Cloud Run)
+    if (!window.location.hostname.includes('run.app')) {
       console.log(`AI Thinking... Level: ${this.level}, Simulations: ${simulationCount}`);
     }
 

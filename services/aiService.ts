@@ -121,7 +121,8 @@ export const getSenseiResponse = async (
   };
 
   // --- LOGGING REQUEST ---
-  if (process.env.NODE_ENV !== 'production') {
+  // Only log if not in production (Cloud Run)
+  if (!window.location.hostname.includes('run.app')) {
     console.log("🐼 [Sensei] FULL API PAYLOAD:", requestPayload);
   }
 
@@ -131,7 +132,7 @@ export const getSenseiResponse = async (
     const responseText = response.text || "{}";
     
     // --- LOGGING RESPONSE ---
-    if (process.env.NODE_ENV !== 'production') {
+    if (!window.location.hostname.includes('run.app')) {
       console.log("🐼 [Sensei] Raw Response:", responseText);
     }
 
