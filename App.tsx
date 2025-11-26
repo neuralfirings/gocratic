@@ -7,6 +7,7 @@ import { generateMove, getLevelSimulations } from './services/simpleAi';
 import { getGeminiMove } from './services/geminiEngine';
 import { fetchGnuGoMove } from './services/gnugoService';
 import { getSenseiResponse } from './services/aiService';
+import { toGtpCoordinate, fromGtpCoordinate } from './services/gtpUtils';
 import { BoardState, Coordinate, ChatMessage, Marker, EngineStatus, GamePhase, SetupTool, StoneColor, GameResult } from './types';
 
 export default function App() {
@@ -357,25 +358,36 @@ export default function App() {
   };
 
   const handleSaveGame = () => {
+    // Helper to convert internal board state to the JSON schema format (GTP coordinates)
+    const serializeBoard = (b: BoardState) => ({
+        ...b,
+        stones: Object.fromEntries(
+            Array.from(b.stones.entries()).map(([key, color]) => {
+                const [x, y] = key.split(',').map(Number);
+                const gtp = toGtpCoordinate({x, y}, b.size);
+                return [gtp, color];
+            })
+        ),
+        lastMove: b.lastMove ? toGtpCoordinate(b.lastMove, b.size) : null,
+        history: b.history.map(h => ({
+            ...h,
+            coordinate: toGtpCoordinate(h.coordinate, b.size)
+        }))
+    });
+
     const gameState = {
-        board,
-        historyStack,
-        redoStack,
+        board: serializeBoard(board),
+        historyStack: historyStack.map(serializeBoard),
+        redoStack: redoStack.map(serializeBoard),
         messages,
         gameMode,
         sessionCost,
         activeMarkers,
-        gameResult
+        gameResult,
+        timestamp: Date.now()
     };
 
-    const replacer = (key: string, value: any) => {
-        if (value instanceof Map) {
-            return { dataType: 'Map', value: Array.from(value.entries()) };
-        }
-        return value;
-    };
-
-    const json = JSON.stringify(gameState, replacer, 2);
+    const json = JSON.stringify(gameState, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -399,20 +411,36 @@ export default function App() {
       reader.onload = (e) => {
           try {
               const content = e.target?.result as string;
-              const reviver = (key: string, value: any) => {
-                  if (typeof value === 'object' && value !== null) {
-                      if (value.dataType === 'Map') {
-                          return new Map(value.value);
-                      }
+              const parsed = JSON.parse(content);
+
+              // Helper to convert JSON schema format back to internal BoardState
+              const deserializeBoard = (b: any): BoardState => {
+                  const newStones = new Map<string, StoneColor>();
+                  if (b.stones) {
+                      Object.entries(b.stones).forEach(([gtp, color]) => {
+                          const coord = fromGtpCoordinate(gtp, b.size);
+                          if (coord) {
+                              newStones.set(`${coord.x},${coord.y}`, color as StoneColor);
+                          }
+                      });
                   }
-                  return value;
+                  
+                  return {
+                      ...b,
+                      stones: newStones,
+                      lastMove: b.lastMove ? fromGtpCoordinate(b.lastMove, b.size) : null,
+                      history: (b.history || []).map((h: any) => ({
+                          ...h,
+                          // Handle passes (which might be "PASS" or null coming from GTP util)
+                          coordinate: fromGtpCoordinate(h.coordinate, b.size) || { x: -1, y: -1 } 
+                      }))
+                  };
               };
-              const parsed = JSON.parse(content, reviver);
 
               if (parsed.board && parsed.messages) {
-                  setBoard(parsed.board);
-                  setHistoryStack(parsed.historyStack || []);
-                  setRedoStack(parsed.redoStack || []);
+                  setBoard(deserializeBoard(parsed.board));
+                  setHistoryStack((parsed.historyStack || []).map(deserializeBoard));
+                  setRedoStack((parsed.redoStack || []).map(deserializeBoard));
                   setMessages(parsed.messages);
                   setGameMode(parsed.gameMode || 'FREE');
                   setSessionCost(parsed.sessionCost || 0);
