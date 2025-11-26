@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { StoneColor, MarkerType } from '../types';
 
@@ -15,7 +14,7 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
     if (!markerType) return null;
 
     // Contrast color: If stone is black, marker is white. If stone is white, marker is black. 
-    // If no stone (empty), marker is Red for visibility.
+    // If no stone (empty), marker is Red/Blue for visibility.
     const markerColor = color === 'BLACK' ? '#ffffff' : color === 'WHITE' ? '#0f172a' : '#ef4444'; 
     
     // Uses inset-0 + m-auto for robust centering instead of transforms
@@ -56,25 +55,30 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
     }
   };
 
+  const isBlack = color === 'BLACK';
+
   return (
     <div className="relative w-full h-full flex items-center justify-center pointer-events-none">
       {color && (
         <div 
-          className={`
-            w-[90%] h-[90%] rounded-full shadow-lg relative z-10
-            ${color === 'BLACK' 
-              ? 'bg-slate-900 shadow-slate-900/50' 
-              : 'bg-slate-100 border border-slate-300 shadow-slate-400/50'}
-          `}
+          className="rounded-full shadow-lg relative z-10"
           style={{
-            background: color === 'BLACK' 
-              ? 'radial-gradient(circle at 30% 30%, #475569, #0f172a)' 
-              : 'radial-gradient(circle at 30% 30%, #ffffff, #cbd5e1)'
+            width: '92%',
+            height: '92%',
+            backgroundColor: isBlack ? '#0f172a' : '#ffffff',
+            background: isBlack 
+              ? 'radial-gradient(circle at 35% 35%, #475569 0%, #0f172a 80%)' 
+              : 'radial-gradient(circle at 35% 35%, #ffffff 0%, #cbd5e1 100%)',
+            boxShadow: isBlack 
+              ? '2px 2px 4px rgba(15, 23, 42, 0.5)' 
+              : '1px 1px 3px rgba(148, 163, 184, 0.5), inset 0 0 0 1px rgba(203, 213, 225, 1)'
           }}
         >
           {/* Last Move Marker (Subtle dot if no other marker) */}
           {isLastMove && !markerType && (
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 ${color === 'BLACK' ? 'border-white' : 'border-black'}`} />
+            <div 
+                className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 ${isBlack ? 'border-white' : 'border-black'}`} 
+            />
           )}
         </div>
       )}
