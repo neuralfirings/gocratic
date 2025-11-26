@@ -1,20 +1,37 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat } from './components/SenseiChat';
 import { GameOverModal } from './components/GameOverModal';
-import { createBoard, placeStone, setStone, calculateAreaScore } from './services/gameLogic';
+import { Navbar } from './components/Navbar';
+import { GameControls } from './components/GameControls';
+import { ScoreBar } from './components/ScoreBar';
+
+import { createBoard, placeStone } from './services/gameLogic'; // still used for parsing SGF replay
+import { useGoGame } from './hooks/useGoGame';
+
 import { generateMove, getLevelSimulations } from './services/simpleAi';
 import { getGeminiMove } from './services/geminiEngine';
 import { fetchGnuGoMove } from './services/gnugoService';
 import { getSenseiResponse } from './services/aiService';
 import { generateSgf, parseSgf } from './services/sgfService';
-import { toGtpCoordinate } from './services/gtpUtils';
-import { BoardState, Coordinate, ChatMessage, Marker, EngineStatus, GamePhase, SetupTool, StoneColor, GameResult } from './types';
+import { BoardState, Coordinate, ChatMessage, Marker, EngineStatus, StoneColor } from './types';
 
 export default function App() {
   const [gameMode, setGameMode] = useState<'FREE' | 'PUZZLE'>('FREE');
-  const [board, setBoard] = useState<BoardState>(createBoard(9));
-  const [gameResult, setGameResult] = useState<GameResult | null>(null);
+  
+  // --- Game State Hook ---
+  const {
+      board,
+      historyStack,
+      redoStack,
+      gameResult,
+      gamePhase, setGamePhase,
+      setupTool, setSetupTool,
+      confirmationPending, setConfirmationPending,
+      playMove, applyMove, passTurn, resign, undo, redo, reset, loadGame, endGameWithScore
+  } = useGoGame(9);
+
   const [showGameOverModal, setShowGameOverModal] = useState(false);
 
   // Messages now include moveNumber to track context
@@ -43,35 +60,9 @@ export default function App() {
   // Cost Tracking
   const [sessionCost, setSessionCost] = useState<number>(0);
 
-  // Undo/Redo Stacks
-  const [historyStack, setHistoryStack] = useState<BoardState[]>([]);
-  const [redoStack, setRedoStack] = useState<BoardState[]>([]);
-
-  // Setup Mode State
-  const [gamePhase, setGamePhase] = useState<GamePhase>('PLAY');
-  const [setupTool, setSetupTool] = useState<SetupTool>('ALTERNATE');
-
-  // Confirmation State (replaces window.confirm)
-  const [confirmationPending, setConfirmationPending] = useState<'RESET' | 'RESIGN' | null>(null);
-
-  // File Input Ref for Load Game
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Auto-clear confirmation state after 3 seconds
-  useEffect(() => {
-    if (confirmationPending) {
-        const timer = setTimeout(() => setConfirmationPending(null), 3000);
-        return () => clearTimeout(timer);
-    }
-  }, [confirmationPending]);
-
   // Show Modal when Game Result is set
   useEffect(() => {
-    if (gameResult) {
-        setShowGameOverModal(true);
-    } else {
-        setShowGameOverModal(false);
-    }
+    setShowGameOverModal(!!gameResult);
   }, [gameResult]);
 
   const addMessage = (sender: 'user' | 'sensei', text: string) => {
@@ -84,11 +75,6 @@ export default function App() {
     }]);
   };
 
-  const pushHistory = (currentState: BoardState) => {
-      setHistoryStack(prev => [...prev, currentState]);
-      setRedoStack([]); // Clear redo stack on new action
-  };
-
   const getGhostColor = (): StoneColor | 'ERASER' => {
       if (gamePhase === 'SETUP') {
           if (setupTool === 'WHITE_ONLY') return 'WHITE';
@@ -98,17 +84,7 @@ export default function App() {
       return board.turn;
   };
 
-  const endGameWithScore = async (finalBoard: BoardState) => {
-      addMessage('sensei', "Calculating final score...");
-      const result = await calculateAreaScore(finalBoard);
-      setGameResult({
-          winner: result.winner,
-          reason: 'SCORING',
-          score: result
-      });
-      setBoard(prev => ({ ...prev, gameOver: true }));
-      addMessage('sensei', `Game Over! ${result.winner === 'BLACK' ? 'Black' : 'White'} wins by ${result.diff} points. (Chinese Area Scoring, Komi 0)`);
-  };
+  // --- AI LOGIC ---
 
   const triggerAiMove = useCallback(async (currentBoard: BoardState) => {
     if (currentBoard.gameOver) return;
@@ -181,43 +157,28 @@ export default function App() {
 
         if (aiResigned) {
             addMessage('sensei', `White Resigns. ${explanation || ''} Calculating final score...`);
-            const score = await calculateAreaScore(currentBoard);
-            setGameResult({ winner: 'BLACK', reason: 'RESIGNATION', score });
-            setBoard(prev => ({ ...prev, gameOver: true }));
-            addMessage('sensei', `Game Over! Black wins. (Score: +${score.diff}, Chinese Rules, Komi 0)`);
+            const res = await endGameWithScore(currentBoard);
+            addMessage('sensei', `Game Over! Black wins. (Score: +${res.score?.diff ?? 0}, Chinese Rules, Komi 0)`);
         } else if (aiPassed) {
              addMessage('sensei', "White passes.");
              
-             // Check for double pass (Game Over)
-             const lastWasPass = currentBoard.history.length > 0 && currentBoard.lastMove === null;
-             if (lastWasPass) {
-                 await endGameWithScore(currentBoard);
-                 return;
+             // Double pass check is handled inside passTurn usually, 
+             // but here we are calling it from AI context.
+             // We reuse passTurn logic or manually apply.
+             // But passTurn in hook updates state.
+             const { gameOver, result } = await passTurn();
+             if (gameOver && result) {
+                addMessage('sensei', `Game Over! ${result.winner === 'BLACK' ? 'Black' : 'White'} wins by ${result.score?.diff ?? 0} points.`);
              }
 
-             // Record Pass
-             setBoard(prev => {
-                const nextState: BoardState = {
-                    ...prev,
-                    turn: 'BLACK',
-                    lastMove: null, // Pass represented as null coordinate in history context usually, but here handled by just switching turn
-                    history: [...prev.history, { color: 'WHITE', coordinate: { x: -1, y: -1 }, capturedCount: 0 }] 
-                };
-                pushHistory(prev);
-                return nextState;
-             });
-
         } else if (move) {
-            setBoard(prev => {
-                if (prev.history.length !== currentBoard.history.length) return prev;
-                const aiState = placeStone(prev, move!);
-                if (aiState) {
-                    pushHistory(prev); 
-                    if (explanation) setLastExplanation(explanation);
-                    return aiState;
-                }
-                return prev;
-            });
+            // Apply Move logic
+            // We use placeStone from gameLogic to get the newState, then use applyMove from hook
+            const aiState = placeStone(currentBoard, move!);
+            if (aiState) {
+                applyMove(aiState, explanation || undefined);
+                if (explanation) setLastExplanation(explanation);
+            }
         }
     } catch (e: any) {
         if (e.message === 'Aborted' || e.name === 'AbortError') {
@@ -234,7 +195,7 @@ export default function App() {
             abortControllerRef.current = null;
         }
     }
-  }, [opponentModel]);
+  }, [opponentModel, applyMove, endGameWithScore, passTurn]);
 
   const handleCancel = () => {
       if (abortControllerRef.current) {
@@ -250,34 +211,18 @@ export default function App() {
   };
 
   const handleUserResign = async () => {
-        // Direct resignation without blocking confirm
-        addMessage('sensei', "Calculating final score...");
-        const score = await calculateAreaScore(board);
-        setGameResult({ winner: 'WHITE', reason: 'RESIGNATION', score });
-        setBoard(prev => ({ ...prev, gameOver: true }));
-        addMessage('sensei', "Black Resigns. White wins. (Chinese Rules, Komi 0)");
-        setConfirmationPending(null);
+      const result = await resign('WHITE');
+      addMessage('sensei', "Black Resigns. White wins. (Chinese Rules, Komi 0)");
   };
 
   const handleUserPass = async () => {
-      // Check for double pass
-      const lastWasPass = board.history.length > 0 && board.lastMove === null; 
-      
-      const nextState: BoardState = {
-          ...board,
-          turn: 'WHITE',
-          lastMove: null,
-          history: [...board.history, { color: 'BLACK', coordinate: { x: -1, y: -1 }, capturedCount: 0 }] 
-      };
-
-      pushHistory(board);
-      setBoard(nextState);
       addMessage('sensei', "Black passes.");
+      const { gameOver, result, nextState } = await passTurn();
 
-      if (lastWasPass) {
-          await endGameWithScore(nextState);
+      if (gameOver && result) {
+         addMessage('sensei', `Game Over! ${result.winner === 'BLACK' ? 'Black' : 'White'} wins by ${result.score?.diff ?? 0} points.`);
       } else {
-          // Trigger AI to play (or pass back)
+          // Trigger AI to play
           if (gameMode === 'FREE') {
             setTimeout(() => triggerAiMove(nextState), 50);
           }
@@ -285,94 +230,38 @@ export default function App() {
   };
 
   const handlePlay = useCallback(async (c: Coordinate) => {
-    if (board.gameOver) return;
-
-    // Phase 1: Setup Mode
-    if (gamePhase === 'SETUP') {
-        let nextState = board;
-        if (setupTool === 'ALTERNATE') {
-            const res = placeStone(board, c);
-            if (res) nextState = res;
-        } else if (setupTool === 'BLACK_ONLY') {
-            nextState = setStone(board, c, 'BLACK');
-        } else if (setupTool === 'WHITE_ONLY') {
-            nextState = setStone(board, c, 'WHITE');
-        } else if (setupTool === 'CLEAR') {
-            nextState = setStone(board, c, null);
-        }
-        setBoard(nextState);
-        return;
-    }
-
-    // Phase 2: Game Mode
-    if (board.stones.has(`${c.x},${c.y}`)) return;
-
-    const nextState = placeStone(board, c);
+    // Attempt move
+    const result = playMove(c);
     
-    if (!nextState) {
-        // Illegal move (suicide or other rules)
-        addMessage('sensei', "That move isn't allowed (Suicide rule).");
+    if (!result.success) {
+        if (result.message) addMessage('sensei', result.message);
         return;
     }
 
-    pushHistory(board);
-    setBoard(nextState);
+    const nextState = result.newState;
 
     // AI Turn Trigger
-    if (gameMode === 'FREE' && !nextState.gameOver) {
+    if (gamePhase === 'PLAY' && gameMode === 'FREE' && nextState && !nextState.gameOver) {
         setTimeout(() => {
             if (nextState.turn === 'WHITE') {
                 triggerAiMove(nextState);
             }
         }, 50);
     }
-  }, [board, gameMode, gamePhase, setupTool, triggerAiMove]);
-
-  const handleUndo = () => {
-      if (historyStack.length === 0) return;
-      
-      const previous = historyStack[historyStack.length - 1];
-      const newHistory = historyStack.slice(0, -1);
-      
-      setRedoStack(prev => [...prev, board]);
-      setBoard(previous);
-      setHistoryStack(newHistory);
-      
-      // If playing against AI, undo twice to get back to user turn
-      // But only if the last move was indeed AI (WHITE)
-      // For simplicity in this demo, strict single undo
-      setEngineStatus('READY');
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-  };
-
-  const handleRedo = () => {
-      if (redoStack.length === 0) return;
-
-      const next = redoStack[redoStack.length - 1];
-      const newRedo = redoStack.slice(0, -1);
-
-      setHistoryStack(prev => [...prev, board]);
-      setBoard(next);
-      setRedoStack(newRedo);
-  };
+  }, [playMove, gameMode, gamePhase, triggerAiMove]);
 
   const handleReset = () => {
-        setBoard(createBoard(board.size));
-        setHistoryStack([]);
-        setRedoStack([]);
+        reset();
         setMessages([{
-        id: Date.now().toString(),
-        sender: 'sensei',
-        text: "Ready for a new game! Good luck!",
-        moveNumber: 0
+            id: Date.now().toString(),
+            sender: 'sensei',
+            text: "Ready for a new game! Good luck!",
+            moveNumber: 0
         }]);
-        setGameResult(null);
         setEngineStatus('READY');
-        setConfirmationPending(null);
   };
 
   const handleSaveGame = () => {
-    // Generate SGF
     const sgf = generateSgf(board);
     const blob = new Blob([sgf], { type: 'application/x-go-sgf' });
     const url = URL.createObjectURL(blob);
@@ -383,10 +272,6 @@ export default function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
-
-  const handleLoadGameTrigger = () => {
-      fileInputRef.current?.click();
   };
 
   const handleLoadGameFile = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -427,16 +312,14 @@ export default function App() {
                       }
                   }
 
-                  setBoard(newBoard);
-                  setHistoryStack(newHistoryStack);
-                  setRedoStack([]);
+                  loadGame(newBoard, newHistoryStack);
+                  
                   setMessages([{
                       id: Date.now().toString(),
                       sender: 'sensei',
                       text: "SGF Game loaded successfully!",
                       moveNumber: newBoard.history.length
                   }]);
-                  setGameResult(null);
                   setEngineStatus('READY');
               } else {
                   addMessage('sensei', "Could not parse SGF file.");
@@ -446,206 +329,57 @@ export default function App() {
               addMessage('sensei', "I couldn't read that SGF file. It might be corrupted.");
           }
           // Reset input to allow reloading same file
-          if (fileInputRef.current) fileInputRef.current.value = '';
+          event.target.value = '';
       };
       reader.readAsText(file);
   };
 
-  const handleCopyGnuArray = () => {
-      const moves = board.history.map(h => {
-          const color = h.color === 'BLACK' ? 'B' : 'W';
-          const coord = toGtpCoordinate(h.coordinate, board.size);
-          return `${color} ${coord}`;
-      });
-      
-      const output = JSON.stringify(moves, null, 2);
-      console.log(output);
-      navigator.clipboard.writeText(output);
-      addMessage('sensei', "Copied game array to clipboard!");
+  const handleUndo = () => {
+      undo();
+      setEngineStatus('READY');
+      if (abortControllerRef.current) abortControllerRef.current.abort();
   };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
       
-      {/* Navbar */}
-      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm z-20">
-         <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-                <div className="text-3xl">🐼</div>
-                <h1 className="text-xl font-bold tracking-tight text-slate-800">GoCratic</h1>
-            </div>
-            
-            <div className="flex items-center gap-2">
-                <button 
-                    onClick={() => {
-                        if (board.history.length === 0 && !board.gameOver) {
-                            handleReset(); 
-                        } else {
-                            confirmationPending === 'RESET' ? handleReset() : setConfirmationPending('RESET');
-                        }
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                        confirmationPending === 'RESET' 
-                        ? 'bg-red-600 text-white border-red-600 animate-pulse' 
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                    }`}
-                >
-                    {confirmationPending === 'RESET' ? 'Confirm Reset?' : 'New Game'}
-                </button>
-                <button 
-                    onClick={handleSaveGame} 
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                >
-                    Save SGF
-                </button>
-                <button 
-                    onClick={handleLoadGameTrigger} 
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                >
-                    Load SGF
-                </button>
-                <button 
-                    onClick={handleCopyGnuArray} 
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                >
-                    Copy GNUGo
-                </button>
-                <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleLoadGameFile} 
-                    accept=".sgf" 
-                    className="hidden" 
-                />
-            </div>
-         </div>
-
-         <div className="flex items-center gap-4 text-sm">
-            <div className="hidden md:block px-3 py-1 bg-slate-100 rounded-full text-slate-600 font-medium text-xs">
-                {gameMode === 'FREE' ? 'Free Play' : 'Puzzle Mode'}
-            </div>
-            {sessionCost > 0 && (
-                <div className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full font-bold border border-emerald-100 text-xs">
-                    ${sessionCost.toFixed(4)}
-                </div>
-            )}
-         </div>
-      </div>
+      <Navbar 
+          board={board}
+          gameMode={gameMode}
+          sessionCost={sessionCost}
+          confirmationPending={confirmationPending}
+          setConfirmationPending={setConfirmationPending}
+          onReset={handleReset}
+          onSave={handleSaveGame}
+          onLoadFile={handleLoadGameFile}
+          onCopyGnu={(msg) => addMessage('sensei', msg)}
+      />
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
          
          {/* Left: Game Area */}
          <div className="flex-1 overflow-y-auto p-4 lg:p-8 flex flex-col items-center gap-4">
             
-            {/* Controls (Above Board) - Compressed Vertical Height */}
-            <div className="w-full bg-white px-4 py-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-3">
-                
-                {/* Row 2: Controls & Tools */}
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    
-                    {/* Left: Opponent & Mode Toggle & Thinking Status */}
-                    <div className="flex items-center gap-2 flex-1 min-w-[200px] overflow-hidden">
-                        <select 
-                            value={opponentModel}
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                setOpponentModel(val);
-                            }}
-                            className="bg-slate-50 border border-slate-300 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2 font-medium truncate max-w-[120px] md:max-w-[180px]"
-                        >
-                            <optgroup label="Gemini AI (Cloud)">
-                                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                <option value="gemini-2.5-pro-preview">Gemini 2.5 Pro</option>
-                                <option value="gemini-3-pro-preview">Gemini 3.0 Pro</option>
-                            </optgroup>
-                            <optgroup label="GNU Go (API)">
-                                <option value="gnugo-1">GNU Go Lvl 1</option>
-                                <option value="gnugo-2">GNU Go Lvl 2</option>
-                                <option value="gnugo-3">GNU Go Lvl 3</option>
-                                <option value="gnugo-4">GNU Go Lvl 4</option>
-                                <option value="gnugo-5">GNU Go Lvl 5 (Mid)</option>
-                                <option value="gnugo-6">GNU Go Lvl 6</option>
-                                <option value="gnugo-7">GNU Go Lvl 7</option>
-                                <option value="gnugo-8">GNU Go Lvl 8</option>
-                                <option value="gnugo-9">GNU Go Lvl 9</option>
-                                <option value="gnugo-10">GNU Go Lvl 10 (High)</option>
-                            </optgroup>
-                        </select>
-
-                        <div className="flex bg-slate-100 p-0.5 rounded-md shrink-0">
-                            <button 
-                                onClick={() => setGamePhase('PLAY')}
-                                className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${gamePhase === 'PLAY' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                PLAY
-                            </button>
-                            <button 
-                                onClick={() => setGamePhase('SETUP')}
-                                className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${gamePhase === 'SETUP' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                SETUP
-                            </button>
-                        </div>
-
-                        {/* Inline Thinking Indicator */}
-                        {engineStatus === 'THINKING' ? (
-                            <div className="flex items-center gap-2 ml-2 text-xs font-bold text-indigo-600 animate-pulse whitespace-nowrap">
-                                <span>⏳ Thinking...</span>
-                                <button onClick={handleCancel} className="text-red-500 hover:text-red-700 underline text-[10px]">
-                                    Cancel
-                                </button>
-                            </div>
-                        ) : (board.turn === 'WHITE' && !board.gameOver) ? (
-                             <button onClick={handleMakeMove} className="ml-2 text-[10px] font-bold text-indigo-500 hover:text-indigo-700 uppercase whitespace-nowrap">
-                                Force AI
-                             </button>
-                        ) : null}
-                    </div>
-
-                    {/* Right: Actions */}
-                    <div className="flex items-center gap-2">
-                         <button onClick={handleUndo} disabled={historyStack.length === 0} className="p-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg disabled:opacity-50" title="Undo">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                                <path fillRule="evenodd" d="M7.793 2.232a.75.75 0 01-.025 1.06L3.622 7.25h10.003a5.375 5.375 0 010 10.75H10.75a.75.75 0 010-1.5h2.875a3.875 3.875 0 000-7.75H3.622l4.146 3.957a.75.75 0 01-1.036 1.085l-5.5-5.25a.75.75 0 010-1.085l5.5-5.25a.75.75 0 011.06.025z" clipRule="evenodd" />
-                            </svg>
-                        </button>
-                        <button onClick={handleRedo} disabled={redoStack.length === 0} className="p-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg disabled:opacity-50" title="Redo">
-                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                                <path fillRule="evenodd" d="M12.207 2.232a.75.75 0 00.025 1.06l4.146 3.958H6.375a5.375 5.375 0 000 10.75h2.875a.75.75 0 000-1.5H6.375a3.875 3.875 0 010-7.75h10.003l-4.146 3.957a.75.75 0 001.036 1.085l5.5-5.25a.75.75 0 000-1.085l-5.5-5.25a.75.75 0 00-1.06.025z" clipRule="evenodd" />
-                            </svg>
-                        </button>
-                        <div className="w-px h-6 bg-slate-200 mx-1"></div>
-                        <button onClick={handleUserPass} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold border border-slate-300">
-                            Pass
-                        </button>
-                        <button 
-                            onClick={() => confirmationPending === 'RESIGN' ? handleUserResign() : setConfirmationPending('RESIGN')} 
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
-                                confirmationPending === 'RESIGN'
-                                ? 'bg-red-600 text-white border-red-600 hover:bg-red-700'
-                                : 'bg-red-50 hover:bg-red-100 text-red-600 border-red-200'
-                            }`}
-                        >
-                            {confirmationPending === 'RESIGN' ? 'Confirm?' : 'Resign'}
-                        </button>
-                    </div>
-                </div>
-
-                {/* Setup Tools (Conditional - Compact) */}
-                {gamePhase === 'SETUP' && (
-                    <div className="flex gap-1 p-1 bg-slate-50 rounded-lg animate-in fade-in slide-in-from-top-1">
-                        {(['ALTERNATE', 'BLACK_ONLY', 'WHITE_ONLY', 'CLEAR'] as SetupTool[]).map(tool => (
-                            <button
-                                key={tool}
-                                onClick={() => setSetupTool(tool)}
-                                className={`flex-1 py-1.5 text-[10px] font-bold rounded shadow-sm border ${setupTool === tool ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                            >
-                                {tool.replace('_', ' ')}
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </div>
+            <GameControls 
+                opponentModel={opponentModel}
+                setOpponentModel={setOpponentModel}
+                gamePhase={gamePhase}
+                setGamePhase={setGamePhase}
+                engineStatus={engineStatus}
+                board={board}
+                onCancelAi={handleCancel}
+                onForceAi={handleMakeMove}
+                onUndo={handleUndo}
+                onRedo={redo}
+                onPass={handleUserPass}
+                onResign={handleUserResign}
+                historyLength={historyStack.length}
+                redoLength={redoStack.length}
+                confirmationPending={confirmationPending}
+                setConfirmationPending={setConfirmationPending}
+                setupTool={setupTool}
+                setSetupTool={setSetupTool}
+            />
 
             {/* Board */}
             <div className="relative w-full">
@@ -658,30 +392,7 @@ export default function App() {
                 />
             </div>
 
-            {/* Score Bar (Moved Below Board) */}
-            <div className="w-full bg-white px-4 py-3 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold transition-all text-sm ${board.turn === 'BLACK' ? 'bg-slate-900 text-white shadow-md ring-2 ring-slate-200' : 'text-slate-700 bg-slate-50'}`}>
-                    <span>Black</span>
-                    <span className="text-xs bg-white/20 px-1.5 py-0.5 rounded ml-1 border border-white/10">{board.captures.BLACK}</span>
-                </div>
-
-                <div className="text-sm font-bold text-slate-500">
-                        {board.gameOver ? (
-                        <span className="text-indigo-600 font-bold animate-pulse px-3 py-1 bg-indigo-50 rounded-full">
-                            {gameResult?.winner === 'BLACK' ? 'Black Wins!' : 'White Wins!'}
-                        </span>
-                    ) : (
-                        <span className="px-3 py-1 bg-slate-50 rounded-full border border-slate-100">
-                            {board.turn === 'BLACK' ? "Your Turn" : "AI Turn"}
-                        </span>
-                    )}
-                </div>
-
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold transition-all text-sm ${board.turn === 'WHITE' ? 'bg-white text-indigo-600 shadow-md ring-2 ring-indigo-100 border border-indigo-200' : 'text-slate-700 bg-slate-50'}`}>
-                    <span>White</span>
-                    <span className="text-xs bg-slate-200 px-1.5 py-0.5 rounded ml-1 text-slate-700 border border-slate-300">{board.captures.WHITE}</span>
-                </div>
-            </div>
+            <ScoreBar board={board} gameResult={gameResult} />
 
          </div>
 
@@ -704,7 +415,6 @@ export default function App() {
             />
          </div>
 
-         {/* Game Over Modal */}
          <GameOverModal 
             isOpen={showGameOverModal}
             result={gameResult}
