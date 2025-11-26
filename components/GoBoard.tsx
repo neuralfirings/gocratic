@@ -1,8 +1,8 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { BoardState, Coordinate, Marker, StoneColor } from '../types';
 import { StoneComponent } from './StoneComponent';
-import { getColLabel, getRowLabel } from '../services/gtpUtils';
+import { getColLabel, getRowLabel, toGtpCoordinate } from '../services/gtpUtils';
 
 interface GoBoardProps {
   board: BoardState;
@@ -20,137 +20,158 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   ghostColor = 'BLACK' 
 }) => {
   const { size, stones, lastMove } = board;
+  const [hoverCoord, setHoverCoord] = useState<Coordinate | null>(null);
   
   // Calculate star points (hoshi)
-  const starPoints = size === 9 ? [2, 6, 4] : size === 13 ? [3, 9, 6] : [3, 9, 15];
-  // Helper to check if a point is a star point
-  const isStarPoint = (x: number, y: number) => {
-    if (size === 9) return (x === 2 || x === 6 || x === 4) && (y === 2 || y === 6 || y === 4);
-    if (size === 13) return (x === 3 || x === 9 || x === 6) && (y === 3 || y === 9 || y === 6);
-    return false; // Simplified for 19x19
+  const getStarPoints = () => {
+      if (size === 9) return [[2,2], [6,2], [4,4], [2,6], [6,6]];
+      if (size === 13) return [[3,3], [9,3], [6,6], [3,9], [9,9]];
+      if (size === 19) return [[3,3], [9,3], [15,3], [3,9], [9,9], [15,9], [3,15], [9,15], [15,15]];
+      return [];
+  };
+  const starPoints = getStarPoints();
+
+  const handleMouseEnter = (x: number, y: number) => {
+      if (interactive) {
+          setHoverCoord({ x, y });
+      }
   };
 
-  // Determine hover styling based on ghost color
-  const getHoverClass = () => {
-      if (!interactive) return '';
-      if (ghostColor === 'WHITE') return 'hover:bg-white/60'; // Lighter, ghostly white
-      if (ghostColor === 'BLACK') return 'hover:bg-slate-900/40'; // Semi-transparent black
-      if (ghostColor === 'ERASER') return 'hover:bg-red-500/30'; // Red tint for removal
-      return 'hover:bg-slate-900/10'; // Fallback
+  const handleMouseLeave = () => {
+      setHoverCoord(null);
   };
 
-  const hoverClass = getHoverClass();
+  const getLabel = (c: Coordinate) => toGtpCoordinate(c, size);
 
   return (
-    <div className="grid grid-cols-[24px_1fr] grid-rows-[24px_1fr] w-full mx-auto select-none">
-      
-      {/* Top Left Corner (Empty) */}
-      <div />
-
-      {/* Top Labels */}
-      <div className="flex items-end justify-between px-4 pb-1">
-           {Array.from({ length: size }).map((_, i) => (
-             <div key={`top-${i}`} className="flex-1 text-center text-xs font-bold text-slate-500">
-               {getColLabel(i)}
-             </div>
-           ))}
-      </div>
-
-      {/* Left Labels */}
-      <div className="flex flex-col justify-between py-4 pr-1">
-           {Array.from({ length: size }).map((_, i) => (
-             <div key={`left-${i}`} className="flex-1 flex items-center justify-center text-xs font-bold text-slate-500">
-               {getRowLabel(i, size)}
-             </div>
-           ))}
-      </div>
-
-      {/* The Board */}
-      <div className="relative p-4 rounded-lg bg-[#e3c078] shadow-2xl wood-texture aspect-square max-w-[600px]">
-        <div className="relative w-full h-full">
-          
-          {/* SVG Grid Layer - Background */}
-          <svg 
-            className="absolute inset-0 w-full h-full pointer-events-none z-0" 
-            viewBox={`0 0 ${size} ${size}`}
-          >
-            {/* Horizontal Lines */}
-            {Array.from({length: size}).map((_, i) => (
-              <line 
-                key={`h-${i}`} 
-                x1="0.5" y1={i + 0.5} 
-                x2={size - 0.5} y2={i + 0.5} 
-                stroke="#0f172a" 
-                strokeWidth="0.05" 
-              />
-            ))}
-            {/* Vertical Lines */}
-            {Array.from({length: size}).map((_, i) => (
-              <line 
-                key={`v-${i}`} 
-                x1={i + 0.5} y1="0.5" 
-                x2={i + 0.5} y2={size - 0.5} 
-                stroke="#0f172a" 
-                strokeWidth="0.05" 
-              />
-            ))}
-            
-            {/* Star Points */}
-            {Array.from({length: size * size}).map((_, i) => {
-               const x = i % size;
-               const y = Math.floor(i / size);
-               if (isStarPoint(x, y)) {
-                 return <circle key={`star-${i}`} cx={x + 0.5} cy={y + 0.5} r="0.1" fill="#0f172a" />;
-               }
-               return null;
-            })}
-          </svg>
-
-          {/* Interactive Layer (Stones and Click Targets) */}
-          <div 
-            className="relative z-10 grid w-full h-full"
-            style={{ 
-                gridTemplateColumns: `repeat(${size}, 1fr)`,
-                gridTemplateRows: `repeat(${size}, 1fr)` 
-            }}
-          >
-            {Array.from({ length: size * size }).map((_, i) => {
-              const x = i % size;
-              const y = Math.floor(i / size);
-              const key = `${x},${y}`;
-              const stoneColor = stones.get(key);
-              const isLast = lastMove?.x === x && lastMove?.y === y;
-              
-              // Check for marker at this coordinate
-              const marker = markers.find(m => m.x === x && m.y === y);
-
-              return (
-                <div 
-                  key={key}
-                  onClick={() => interactive && onPlay({ x, y })}
-                  className={`
-                    relative flex items-center justify-center cursor-pointer
-                    rounded-full transition-colors duration-200
-                    ${hoverClass}
-                  `}
-                >
-                  {/* Render Stone if exists, or just marker if empty spot has marker */}
-                  {(stoneColor || marker) ? (
-                    <StoneComponent 
-                      color={stoneColor} 
-                      isLastMove={isLast} 
-                      markerType={marker?.type}
-                    />
-                  ) : (
-                     /* Invisible click target that highlights on hover */
-                     <div className="w-1/2 h-1/2 rounded-full" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
+    <div className="flex flex-col items-center">
+        <div className="relative inline-block bg-[#F2B06D] rounded-[4px] shadow-xl select-none p-1 sm:p-2 lg:p-3">
+        {/* Hover Coordinate Indicator */}
+        <div className="absolute -top-8 left-0 right-0 h-6 flex justify-center items-center pointer-events-none">
+             <span className={`
+                text-sm font-bold text-slate-600 bg-white/90 px-3 py-0.5 rounded-full shadow-sm transition-opacity duration-200
+                ${hoverCoord ? 'opacity-100' : 'opacity-0'}
+             `}>
+                 {hoverCoord ? getLabel(hoverCoord) : '...'}
+             </span>
         </div>
-      </div>
+
+        <div className="grid grid-cols-[auto_1fr] grid-rows-[auto_1fr]">
+            {/* Top Labels */}
+            <div className="col-start-2 flex pb-1">
+                {Array.from({ length: size }).map((_, i) => (
+                    <div key={`col-${i}`} className="flex-1 flex justify-center text-[10px] sm:text-xs font-semibold text-[#5E4024]">
+                        {getColLabel(i)}
+                    </div>
+                ))}
+            </div>
+
+            {/* Left Labels */}
+            <div className="row-start-2 flex flex-col pr-1">
+                {Array.from({ length: size }).map((_, i) => (
+                    <div key={`row-${i}`} className="flex-1 flex items-center justify-center text-[10px] sm:text-xs font-semibold text-[#5E4024] w-4 sm:w-6">
+                        {getRowLabel(i, size)}
+                    </div>
+                ))}
+            </div>
+
+            {/* Board Grid */}
+            <div className="relative aspect-square w-[85vw] max-w-[600px] bg-[#E8C086]"
+                onMouseLeave={handleMouseLeave}
+            >
+                {/* Lines Layer */}
+                <svg 
+                    className="absolute inset-0 w-full h-full pointer-events-none z-0" 
+                    viewBox={`0 0 ${size} ${size}`}
+                >
+                    {/* Background fill to ensure no gaps */}
+                    <rect x="0" y="0" width={size} height={size} fill="#E3B574" />
+                    
+                    {/* Grid Lines */}
+                    {Array.from({length: size}).map((_, i) => (
+                    <g key={`lines-${i}`}>
+                        <line 
+                            x1="0.5" y1={i + 0.5} 
+                            x2={size - 0.5} y2={i + 0.5} 
+                            stroke="#5E4024" 
+                            strokeWidth="0.04" 
+                        />
+                        <line 
+                            x1={i + 0.5} y1="0.5" 
+                            x2={i + 0.5} y2={size - 0.5} 
+                            stroke="#5E4024" 
+                            strokeWidth="0.04" 
+                        />
+                    </g>
+                    ))}
+                    
+                    {/* Star Points */}
+                    {starPoints.map(([x, y], idx) => (
+                        <circle key={`star-${idx}`} cx={x + 0.5} cy={y + 0.5} r="0.08" fill="#5E4024" />
+                    ))}
+                </svg>
+
+                {/* Interaction Layer */}
+                <div 
+                    className="relative z-10 grid w-full h-full"
+                    style={{ 
+                        gridTemplateColumns: `repeat(${size}, 1fr)`,
+                        gridTemplateRows: `repeat(${size}, 1fr)` 
+                    }}
+                >
+                    {Array.from({ length: size * size }).map((_, i) => {
+                        const x = i % size;
+                        const y = Math.floor(i / size);
+                        const key = `${x},${y}`;
+                        const stoneColor = stones.get(key);
+                        const isLast = lastMove?.x === x && lastMove?.y === y;
+                        const marker = markers.find(m => m.x === x && m.y === y);
+                        const isHovered = hoverCoord?.x === x && hoverCoord?.y === y;
+
+                        return (
+                            <div 
+                                key={key}
+                                onMouseEnter={() => handleMouseEnter(x, y)}
+                                onClick={() => interactive && onPlay({ x, y })}
+                                className="relative flex items-center justify-center cursor-pointer"
+                            >
+                                {/* Ghost Stone */}
+                                {interactive && isHovered && !stoneColor && ghostColor !== 'ERASER' && (
+                                    <div className={`
+                                        w-[80%] h-[80%] rounded-full opacity-40
+                                        ${ghostColor === 'BLACK' ? 'bg-black' : 'bg-white'}
+                                    `}/>
+                                )}
+                                
+                                {/* Eraser Ghost */}
+                                {interactive && isHovered && stoneColor && ghostColor === 'ERASER' && (
+                                    <div className="absolute inset-0 flex items-center justify-center z-30">
+                                         <div className="w-[80%] h-[80%] rounded-full bg-red-500/40 border-2 border-red-500/60" />
+                                    </div>
+                                )}
+
+                                {/* Actual Stone / Marker */}
+                                {(stoneColor || marker) && (
+                                    <div className="absolute inset-0 w-full h-full p-[2%]">
+                                        <StoneComponent 
+                                            color={stoneColor} 
+                                            isLastMove={isLast} 
+                                            markerType={marker?.type}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+        </div>
+        
+        {/* Mobile/Compact Coordinate Footer */}
+        <div className="mt-2 text-xs text-slate-400 font-mono h-4">
+             {hoverCoord ? `Cursor: ${getLabel(hoverCoord)}` : ''}
+        </div>
     </div>
   );
 };

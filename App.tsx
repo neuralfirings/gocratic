@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat } from './components/SenseiChat';
@@ -8,7 +7,8 @@ import { generateMove, getLevelSimulations } from './services/simpleAi';
 import { getGeminiMove } from './services/geminiEngine';
 import { fetchGnuGoMove } from './services/gnugoService';
 import { getSenseiResponse } from './services/aiService';
-import { toGtpCoordinate, fromGtpCoordinate } from './services/gtpUtils';
+import { generateSgf, parseSgf } from './services/sgfService';
+import { toGtpCoordinate } from './services/gtpUtils';
 import { BoardState, Coordinate, ChatMessage, Marker, EngineStatus, GamePhase, SetupTool, StoneColor, GameResult } from './types';
 
 export default function App() {
@@ -372,41 +372,13 @@ export default function App() {
   };
 
   const handleSaveGame = () => {
-    // Helper to convert internal board state to the JSON schema format (GTP coordinates)
-    const serializeBoard = (b: BoardState) => ({
-        ...b,
-        stones: Object.fromEntries(
-            Array.from(b.stones.entries()).map(([key, color]) => {
-                const [x, y] = key.split(',').map(Number);
-                const gtp = toGtpCoordinate({x, y}, b.size);
-                return [gtp, color];
-            })
-        ),
-        lastMove: b.lastMove ? toGtpCoordinate(b.lastMove, b.size) : null,
-        history: b.history.map(h => ({
-            ...h,
-            coordinate: toGtpCoordinate(h.coordinate, b.size)
-        }))
-    });
-
-    const gameState = {
-        board: serializeBoard(board),
-        historyStack: historyStack.map(serializeBoard),
-        redoStack: redoStack.map(serializeBoard),
-        messages,
-        gameMode,
-        sessionCost,
-        activeMarkers,
-        gameResult,
-        timestamp: Date.now()
-    };
-
-    const json = JSON.stringify(gameState, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
+    // Generate SGF
+    const sgf = generateSgf(board);
+    const blob = new Blob([sgf], { type: 'application/x-go-sgf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `gocratic_save_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.json`;
+    a.download = `gocratic_game_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.sgf`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -425,55 +397,71 @@ export default function App() {
       reader.onload = (e) => {
           try {
               const content = e.target?.result as string;
-              const parsed = JSON.parse(content);
+              const result = parseSgf(content);
 
-              // Helper to convert JSON schema format back to internal BoardState
-              const deserializeBoard = (b: any): BoardState => {
-                  const newStones = new Map<string, StoneColor>();
-                  if (b.stones) {
-                      Object.entries(b.stones).forEach(([gtp, color]) => {
-                          const coord = fromGtpCoordinate(gtp, b.size);
-                          if (coord) {
-                              newStones.set(`${coord.x},${coord.y}`, color as StoneColor);
+              if (result.isValid) {
+                  // Reconstruct board by replaying moves
+                  let newBoard = createBoard(result.size);
+                  const newHistoryStack: BoardState[] = [];
+
+                  // Replay logic
+                  for (const move of result.moves) {
+                      if (move.coordinate.x === -1) {
+                          // Pass
+                          const nextState: BoardState = {
+                              ...newBoard,
+                              turn: (move.color === 'BLACK' ? 'WHITE' : 'BLACK') as StoneColor,
+                              lastMove: null,
+                              history: [...newBoard.history, { color: move.color, coordinate: move.coordinate, capturedCount: 0 }]
+                          };
+                          newHistoryStack.push(newBoard);
+                          newBoard = nextState;
+                      } else {
+                          const nextState = placeStone(newBoard, move.coordinate);
+                          if (nextState) {
+                              newHistoryStack.push(newBoard);
+                              newBoard = nextState;
+                          } else {
+                              console.warn("Invalid move during replay:", move);
                           }
-                      });
+                      }
                   }
-                  
-                  return {
-                      ...b,
-                      stones: newStones,
-                      lastMove: b.lastMove ? fromGtpCoordinate(b.lastMove, b.size) : null,
-                      history: (b.history || []).map((h: any) => ({
-                          ...h,
-                          // Handle passes (which might be "PASS" or null coming from GTP util)
-                          coordinate: fromGtpCoordinate(h.coordinate, b.size) || { x: -1, y: -1 } 
-                      }))
-                  };
-              };
 
-              if (parsed.board && parsed.messages) {
-                  setBoard(deserializeBoard(parsed.board));
-                  setHistoryStack((parsed.historyStack || []).map(deserializeBoard));
-                  setRedoStack((parsed.redoStack || []).map(deserializeBoard));
-                  setMessages(parsed.messages);
-                  setGameMode(parsed.gameMode || 'FREE');
-                  setSessionCost(parsed.sessionCost || 0);
-                  setActiveMarkers(parsed.activeMarkers || []);
-                  setGameResult(parsed.gameResult || null);
+                  setBoard(newBoard);
+                  setHistoryStack(newHistoryStack);
+                  setRedoStack([]);
+                  setMessages([{
+                      id: Date.now().toString(),
+                      sender: 'sensei',
+                      text: "SGF Game loaded successfully!",
+                      moveNumber: newBoard.history.length
+                  }]);
+                  setGameResult(null);
                   setEngineStatus('READY');
-                  addMessage('sensei', "Game loaded! Welcome back.");
               } else {
-                  console.error("Invalid save file structure");
-                  addMessage('sensei', "That file doesn't look like a valid GoCratic save.");
+                  addMessage('sensei', "Could not parse SGF file.");
               }
           } catch (err) {
-              console.error("Error parsing save file", err);
-              addMessage('sensei', "I couldn't read that save file. It might be corrupted.");
+              console.error("Error parsing SGF file", err);
+              addMessage('sensei', "I couldn't read that SGF file. It might be corrupted.");
           }
           // Reset input to allow reloading same file
           if (fileInputRef.current) fileInputRef.current.value = '';
       };
       reader.readAsText(file);
+  };
+
+  const handleCopyGnuArray = () => {
+      const moves = board.history.map(h => {
+          const color = h.color === 'BLACK' ? 'B' : 'W';
+          const coord = toGtpCoordinate(h.coordinate, board.size);
+          return `${color} ${coord}`;
+      });
+      
+      const output = JSON.stringify(moves, null, 2);
+      console.log(output);
+      navigator.clipboard.writeText(output);
+      addMessage('sensei', "Copied game array to clipboard!");
   };
 
   return (
@@ -508,19 +496,25 @@ export default function App() {
                     onClick={handleSaveGame} 
                     className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 >
-                    Save Game
+                    Save SGF
                 </button>
                 <button 
                     onClick={handleLoadGameTrigger} 
                     className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 >
-                    Load Game
+                    Load SGF
+                </button>
+                <button 
+                    onClick={handleCopyGnuArray} 
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                >
+                    Copy GNUGo
                 </button>
                 <input 
                     type="file" 
                     ref={fileInputRef} 
                     onChange={handleLoadGameFile} 
-                    accept=".json" 
+                    accept=".sgf" 
                     className="hidden" 
                 />
             </div>
