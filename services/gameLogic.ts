@@ -2,7 +2,7 @@
 import { BoardState, StoneColor, Coordinate, ScoreResult } from '../types';
 import { toGtpCoordinate, COLS } from './gtpUtils';
 
-export const KOMI = 6.5;
+export const KOMI = 0;
 
 export const createBoard = (size: number = 9): BoardState => ({
   size,
@@ -232,78 +232,83 @@ export const getLegalMoves = (state: BoardState): Coordinate[] => {
 };
 
 // --- SCORING LOGIC (Chinese / Area Scoring) ---
-// Score = Stones on board + Surrounded Territory
-// White gets Komi (6.5)
+// Uses external GNU Go API to calculate Chinese Area Score with Komi 0
 
-export const calculateAreaScore = (board: BoardState): ScoreResult => {
-    const visited = new Set<string>();
-    let blackStones = 0;
-    let whiteStones = 0;
-    let blackTerritory = 0;
-    let whiteTerritory = 0;
-
-    // 1. Count Stones
-    board.stones.forEach((color) => {
-        if (color === 'BLACK') blackStones++;
-        else whiteStones++;
+export const calculateAreaScore = async (board: BoardState): Promise<ScoreResult> => {
+    // Construct moves list in GTP format (e.g. "B C3", "W D4")
+    const moves = board.history.map(h => {
+        const c = h.color === 'BLACK' ? 'B' : 'W';
+        const coordStr = toGtpCoordinate(h.coordinate, board.size);
+        return `${c} ${coordStr}`;
     });
 
-    // 2. Flood Fill Empty Regions
-    for (let y = 0; y < board.size; y++) {
-        for (let x = 0; x < board.size; x++) {
-            const key = `${x},${y}`;
-            
-            if (board.stones.has(key) || visited.has(key)) continue;
-
-            // Found an empty unvisited point. Start Flood Fill.
-            const region: string[] = [];
-            const queue: Coordinate[] = [{x, y}];
-            visited.add(key);
-            region.push(key);
-
-            let touchesBlack = false;
-            let touchesWhite = false;
-
-            while (queue.length > 0) {
-                const current = queue.shift()!;
-                const neighbors = getNeighbors(current, board.size);
-
-                for (const n of neighbors) {
-                    const nKey = `${n.x},${n.y}`;
-                    const stone = board.stones.get(nKey);
-
-                    if (stone === 'BLACK') touchesBlack = true;
-                    else if (stone === 'WHITE') touchesWhite = true;
-                    else if (!visited.has(nKey)) {
-                        visited.add(nKey);
-                        region.push(nKey);
-                        queue.push(n);
-                    }
-                }
-            }
-
-            // Determine ownership
-            if (touchesBlack && !touchesWhite) {
-                blackTerritory += region.length;
-            } else if (!touchesBlack && touchesWhite) {
-                whiteTerritory += region.length;
-            }
-            // If touches both (dame) or neither (impossible in finished game?), no points.
-        }
-    }
-
-    const blackTotal = blackStones + blackTerritory;
-    const whiteTotal = whiteStones + whiteTerritory + KOMI;
-    
-    return {
-        blackStones,
-        blackTerritory,
-        blackTotal,
-        whiteStones,
-        whiteTerritory,
-        komi: KOMI,
-        whiteTotal,
-        winner: blackTotal > whiteTotal ? 'BLACK' : 'WHITE',
-        diff: Math.abs(blackTotal - whiteTotal)
+    const payload = {
+        mode: "finishScore",
+        size: board.size,
+        chineseRules: true,
+        komi: 0, // Explicit 0 as requested
+        moves: moves
     };
+
+    try {
+        const response = await fetch("https://gnugo-bot-5ci3ymbqfa-uw.a.run.app/action", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error("Scoring API request failed");
+        }
+
+        const data = await response.json();
+        // data.result format examples: "B+10.5", "W+2.0", "0"
+        const resultStr = data.result;
+        
+        if (!resultStr) throw new Error("No result from Scoring API");
+
+        let winner: 'BLACK' | 'WHITE' = 'BLACK';
+        let diff = 0;
+
+        const upper = resultStr.toUpperCase();
+        if (upper.startsWith('W+')) {
+            winner = 'WHITE';
+            diff = parseFloat(upper.split('+')[1]);
+        } else if (upper.startsWith('B+')) {
+            winner = 'BLACK';
+            diff = parseFloat(upper.split('+')[1]);
+        } else {
+            // Draw or 0
+            diff = 0;
+            winner = 'BLACK'; // Default for interface
+        }
+
+        return {
+            blackStones: 0,
+            blackTerritory: 0,
+            blackTotal: 0,
+            whiteStones: 0,
+            whiteTerritory: 0,
+            komi: KOMI,
+            whiteTotal: 0,
+            winner,
+            diff
+        };
+    } catch (e) {
+        console.error("Error fetching score:", e);
+        // Fallback: Return a draw or basic state to prevent crash
+        return {
+            blackStones: 0,
+            blackTerritory: 0,
+            blackTotal: 0,
+            whiteStones: 0,
+            whiteTerritory: 0,
+            komi: KOMI,
+            whiteTotal: 0,
+            winner: 'BLACK',
+            diff: 0
+        };
+    }
 };

@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat } from './components/SenseiChat';
+import { GameOverModal } from './components/GameOverModal';
 import { createBoard, placeStone, setStone, calculateAreaScore } from './services/gameLogic';
 import { generateMove, getLevelSimulations } from './services/simpleAi';
 import { getGeminiMove } from './services/geminiEngine';
@@ -14,6 +15,7 @@ export default function App() {
   const [gameMode, setGameMode] = useState<'FREE' | 'PUZZLE'>('FREE');
   const [board, setBoard] = useState<BoardState>(createBoard(9));
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
+  const [showGameOverModal, setShowGameOverModal] = useState(false);
 
   // Messages now include moveNumber to track context
   const [messages, setMessages] = useState<ChatMessage[]>([{
@@ -63,6 +65,15 @@ export default function App() {
     }
   }, [confirmationPending]);
 
+  // Show Modal when Game Result is set
+  useEffect(() => {
+    if (gameResult) {
+        setShowGameOverModal(true);
+    } else {
+        setShowGameOverModal(false);
+    }
+  }, [gameResult]);
+
   const addMessage = (sender: 'user' | 'sensei', text: string) => {
     const moveNumber = board.history.length;
     setMessages(prev => [...prev, { 
@@ -87,15 +98,16 @@ export default function App() {
       return board.turn;
   };
 
-  const endGameWithScore = (finalBoard: BoardState) => {
-      const result = calculateAreaScore(finalBoard);
+  const endGameWithScore = async (finalBoard: BoardState) => {
+      addMessage('sensei', "Calculating final score...");
+      const result = await calculateAreaScore(finalBoard);
       setGameResult({
           winner: result.winner,
           reason: 'SCORING',
           score: result
       });
       setBoard(prev => ({ ...prev, gameOver: true }));
-      addMessage('sensei', `Game Over! ${result.winner === 'BLACK' ? 'Black' : 'White'} wins by ${result.diff.toFixed(1)} points.`);
+      addMessage('sensei', `Game Over! ${result.winner === 'BLACK' ? 'Black' : 'White'} wins by ${result.diff} points. (Chinese Area Scoring, Komi 0)`);
   };
 
   const triggerAiMove = useCallback(async (currentBoard: BoardState) => {
@@ -168,17 +180,18 @@ export default function App() {
         if (moveCost > 0) setSessionCost(prev => prev + moveCost);
 
         if (aiResigned) {
-            const score = calculateAreaScore(currentBoard);
+            addMessage('sensei', `White Resigns. ${explanation || ''} Calculating final score...`);
+            const score = await calculateAreaScore(currentBoard);
             setGameResult({ winner: 'BLACK', reason: 'RESIGNATION', score });
             setBoard(prev => ({ ...prev, gameOver: true }));
-            addMessage('sensei', `White Resigns. ${explanation || ''}`);
+            addMessage('sensei', `Game Over! Black wins. (Score: +${score.diff}, Chinese Rules, Komi 0)`);
         } else if (aiPassed) {
              addMessage('sensei', "White passes.");
              
              // Check for double pass (Game Over)
              const lastWasPass = currentBoard.history.length > 0 && currentBoard.lastMove === null;
              if (lastWasPass) {
-                 endGameWithScore(currentBoard);
+                 await endGameWithScore(currentBoard);
                  return;
              }
 
@@ -236,16 +249,17 @@ export default function App() {
       }
   };
 
-  const handleUserResign = () => {
+  const handleUserResign = async () => {
         // Direct resignation without blocking confirm
-        const score = calculateAreaScore(board);
+        addMessage('sensei', "Calculating final score...");
+        const score = await calculateAreaScore(board);
         setGameResult({ winner: 'WHITE', reason: 'RESIGNATION', score });
         setBoard(prev => ({ ...prev, gameOver: true }));
-        addMessage('sensei', "Black Resigns. White wins.");
+        addMessage('sensei', "Black Resigns. White wins. (Chinese Rules, Komi 0)");
         setConfirmationPending(null);
   };
 
-  const handleUserPass = () => {
+  const handleUserPass = async () => {
       // Check for double pass
       const lastWasPass = board.history.length > 0 && board.lastMove === null; 
       
@@ -261,7 +275,7 @@ export default function App() {
       addMessage('sensei', "Black passes.");
 
       if (lastWasPass) {
-          endGameWithScore(nextState);
+          await endGameWithScore(nextState);
       } else {
           // Trigger AI to play (or pass back)
           if (gameMode === 'FREE') {
@@ -524,7 +538,7 @@ export default function App() {
          </div>
       </div>
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
          
          {/* Left: Game Area */}
          <div className="flex-1 overflow-y-auto p-4 lg:p-8 flex flex-col items-center gap-4">
@@ -695,6 +709,15 @@ export default function App() {
                 onModelChange={setSenseiModel}
             />
          </div>
+
+         {/* Game Over Modal */}
+         <GameOverModal 
+            isOpen={showGameOverModal}
+            result={gameResult}
+            onClose={() => setShowGameOverModal(false)}
+            onNewGame={handleReset}
+         />
+
       </div>
 
     </div>
