@@ -66,7 +66,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
       </div>
 
       {/* The Board */}
-      <div className="relative p-4 rounded-lg bg-[#e3c078] shadow-2xl wood-texture aspect-square w-full">
+      <div className="relative p-4 rounded-lg bg-[#e3c078] shadow-2xl wood-texture aspect-square max-w-[600px]">
         <div className="relative w-full h-full">
           
           {/* SVG Grid Layer - Background */}
