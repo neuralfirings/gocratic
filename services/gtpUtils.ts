@@ -5,6 +5,8 @@ export const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ"; // Skips 'I'
 
 // Convert Board Coordinate (0,0 is Top-Left) to GTP (A19 is Top-Left)
 export const toGtpCoordinate = (c: Coordinate, size: number): string => {
+  if (c.x < 0 || c.y < 0) return "PASS";
+  
   const col = COLS[c.x];
   const row = size - c.y; // SVG/Board y=0 is top, GTP y=1 is bottom
   return `${col}${row}`;

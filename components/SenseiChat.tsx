@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from '../types';
 
@@ -40,7 +41,7 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[600px] w-full lg:w-96 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden">
+    <div className="flex flex-col h-[600px] w-full bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden">
       {/* Header */}
       <div className="bg-indigo-600 p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">

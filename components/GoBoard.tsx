@@ -42,7 +42,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   const hoverClass = getHoverClass();
 
   return (
-    <div className="grid grid-cols-[24px_1fr] grid-rows-[24px_1fr] w-full max-w-[600px] mx-auto select-none">
+    <div className="grid grid-cols-[24px_1fr] grid-rows-[24px_1fr] w-full mx-auto select-none">
       
       {/* Top Left Corner (Empty) */}
       <div />
