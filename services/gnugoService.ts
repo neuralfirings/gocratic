@@ -28,7 +28,10 @@ export const fetchGnuGoMove = async (board: BoardState, level: number): Promise<
   };
 
   try {
-    console.log("gnu api", JSON.stringify(payload))
+    if (!window.location.hostname.includes('run.app')) {
+      console.log("⚪️ [GNUGo] Requesty Body", payload);
+    }
+
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: { 
@@ -43,6 +46,10 @@ export const fetchGnuGoMove = async (board: BoardState, level: number): Promise<
     }
 
     const data = await response.json();
+
+    if (!window.location.hostname.includes('run.app')) {
+      console.log("⚪️ [GNUGo] Raw Response", data);
+    }
     const resultString = data.result; 
 
     if (!resultString) {
