@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { BoardState, Coordinate, Marker, StoneColor } from '../types';
 import { StoneComponent } from './StoneComponent';
@@ -188,6 +189,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
                             color={stoneColor} 
                             isLastMove={isLast} 
                             markerType={marker?.type}
+                            label={marker?.label}
                         />
                     </div>
                 )}

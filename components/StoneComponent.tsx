@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { StoneColor, MarkerType } from '../types';
 
@@ -5,9 +6,10 @@ interface StoneProps {
   color?: StoneColor; // color is optional now (marker can be on empty spot)
   isLastMove?: boolean;
   markerType?: MarkerType;
+  label?: string;
 }
 
-export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, markerType }) => {
+export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, markerType, label }) => {
   
   // Helper to render marker shape
   const renderMarker = () => {
@@ -85,6 +87,15 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
       
       {/* Semantic Marker (Triangle, etc) - Renders directly in the center */}
       {renderMarker()}
+
+      {/* Text Label (e.g. Points Score) - Rendered centered, small font */}
+      {label && (
+        <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+            <span className="text-[10px] font-bold text-white bg-slate-800/80 px-1 rounded shadow-sm leading-none backdrop-blur-sm -mt-[1px]">
+                {label}
+            </span>
+        </div>
+      )}
     </div>
   );
 };

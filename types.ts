@@ -1,4 +1,5 @@
 
+
 export type StoneColor = 'BLACK' | 'WHITE';
 
 export interface Coordinate {
@@ -84,4 +85,9 @@ export interface GameResult {
   winner: 'BLACK' | 'WHITE';
   reason: 'RESIGNATION' | 'SCORING';
   score?: ScoreResult;
+}
+
+export interface AnalysisMove {
+  coordinate: Coordinate;
+  score: number;
 }

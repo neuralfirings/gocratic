@@ -7,15 +7,15 @@ import { Navbar } from './components/Navbar';
 import { GameControls } from './components/GameControls';
 import { ScoreBar } from './components/ScoreBar';
 
-import { createBoard, placeStone } from './services/gameLogic'; // still used for parsing SGF replay
+import { createBoard, placeStone } from './services/gameLogic';
 import { useGoGame } from './hooks/useGoGame';
 
 import { generateMove, getLevelSimulations } from './services/simpleAi';
 import { getGeminiMove } from './services/geminiEngine';
-import { fetchGnuGoMove } from './services/gnugoService';
+import { fetchGnuGoMove, fetchGnuGoHints } from './services/gnugoService';
 import { getSenseiResponse } from './services/aiService';
 import { generateSgf, parseSgf } from './services/sgfService';
-import { BoardState, Coordinate, ChatMessage, Marker, EngineStatus, StoneColor } from './types';
+import { BoardState, Coordinate, ChatMessage, Marker, EngineStatus, StoneColor, AnalysisMove } from './types';
 
 export default function App() {
   const [gameMode, setGameMode] = useState<'FREE' | 'PUZZLE'>('FREE');
@@ -34,7 +34,6 @@ export default function App() {
 
   const [showGameOverModal, setShowGameOverModal] = useState(false);
 
-  // Messages now include moveNumber to track context
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     sender: 'sensei',
@@ -44,6 +43,10 @@ export default function App() {
   
   const [activeMarkers, setActiveMarkers] = useState<Marker[]>([]);
   
+  // Analysis State
+  const [analysisData, setAnalysisData] = useState<AnalysisMove[]>([]);
+  const [showBestMoves, setShowBestMoves] = useState(false);
+
   // Engine State
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('READY');
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -64,6 +67,27 @@ export default function App() {
   useEffect(() => {
     setShowGameOverModal(!!gameResult);
   }, [gameResult]);
+
+  // --- ANALYSIS LOOP ---
+  // Fetch hints whenever the board history changes and the game is active
+  useEffect(() => {
+    // Clear Sensei's transient markers whenever a new move occurs
+    setActiveMarkers([]);
+
+    const fetchHints = async () => {
+        // Only fetch if game is active.
+        if (board.gameOver) {
+            setAnalysisData([]);
+            return;
+        }
+        
+        // Fetch hints for the current state (helps the current player)
+        const hints = await fetchGnuGoHints(board);
+        setAnalysisData(hints);
+    };
+
+    fetchHints();
+  }, [board.history.length, board.gameOver, board.turn]);
 
   const addMessage = (sender: 'user' | 'sensei', text: string) => {
     const moveNumber = board.history.length;
@@ -161,19 +185,12 @@ export default function App() {
             addMessage('sensei', `Game Over! Black wins. (Score: +${res.score?.diff ?? 0}, Chinese Rules, Komi 0)`);
         } else if (aiPassed) {
              addMessage('sensei', "White passes.");
-             
-             // Double pass check is handled inside passTurn usually, 
-             // but here we are calling it from AI context.
-             // We reuse passTurn logic or manually apply.
-             // But passTurn in hook updates state.
              const { gameOver, result } = await passTurn();
              if (gameOver && result) {
                 addMessage('sensei', `Game Over! ${result.winner === 'BLACK' ? 'Black' : 'White'} wins by ${result.score?.diff ?? 0} points.`);
              }
-
         } else if (move) {
             // Apply Move logic
-            // We use placeStone from gameLogic to get the newState, then use applyMove from hook
             const aiState = placeStone(currentBoard, move!);
             if (aiState) {
                 applyMove(aiState, explanation || undefined);
@@ -182,9 +199,7 @@ export default function App() {
         }
     } catch (e: any) {
         if (e.message === 'Aborted' || e.name === 'AbortError') {
-            if (!window.location.hostname.includes('run.app')) {
-              console.log("AI Cancelled");
-            }
+            // ignore
         } else {
             console.error("Engine Generate Error", e);
             addMessage('sensei', "I'm having trouble connecting to the game server. Please try again.");
@@ -204,7 +219,7 @@ export default function App() {
       setEngineStatus('READY');
   };
 
-  const handleMakeMove = () => {
+  const handleForceAi = () => {
       if (board.turn === 'WHITE' && engineStatus !== 'THINKING' && !board.gameOver) {
           triggerAiMove(board);
       }
@@ -259,6 +274,9 @@ export default function App() {
             moveNumber: 0
         }]);
         setEngineStatus('READY');
+        setAnalysisData([]);
+        setShowBestMoves(false);
+        setActiveMarkers([]);
   };
 
   const handleSaveGame = () => {
@@ -289,10 +307,8 @@ export default function App() {
                   let newBoard = createBoard(result.size);
                   const newHistoryStack: BoardState[] = [];
 
-                  // Replay logic
                   for (const move of result.moves) {
                       if (move.coordinate.x === -1) {
-                          // Pass
                           const nextState: BoardState = {
                               ...newBoard,
                               turn: (move.color === 'BLACK' ? 'WHITE' : 'BLACK') as StoneColor,
@@ -306,8 +322,6 @@ export default function App() {
                           if (nextState) {
                               newHistoryStack.push(newBoard);
                               newBoard = nextState;
-                          } else {
-                              console.warn("Invalid move during replay:", move);
                           }
                       }
                   }
@@ -328,7 +342,6 @@ export default function App() {
               console.error("Error parsing SGF file", err);
               addMessage('sensei', "I couldn't read that SGF file. It might be corrupted.");
           }
-          // Reset input to allow reloading same file
           event.target.value = '';
       };
       reader.readAsText(file);
@@ -338,6 +351,55 @@ export default function App() {
       undo();
       setEngineStatus('READY');
       if (abortControllerRef.current) abortControllerRef.current.abort();
+      setAnalysisData([]); // Clear old analysis
+      setShowBestMoves(false); // Hide markers
+      setActiveMarkers([]);
+  };
+
+  const handleSendMessage = async (text: string) => {
+    addMessage('user', text);
+    setIsSenseiThinking(true);
+
+    const response = await getSenseiResponse(
+        board, 
+        messages, 
+        text, 
+        senseiModel,
+        analysisData // Pass analysis data to Sensei
+    );
+
+    setIsSenseiThinking(false);
+    
+    if (response.cost > 0) setSessionCost(prev => prev + response.cost);
+    
+    addMessage('sensei', response.text);
+    
+    if (response.markers) {
+        setActiveMarkers(response.markers);
+    }
+  };
+
+  // Combine Sensei markers with "Best Moves" if enabled
+  const getCombinedMarkers = (): Marker[] => {
+    let baseMarkers = [...activeMarkers];
+    
+    if (showBestMoves && analysisData.length > 0) {
+        // Map analysis to Markers
+        const analysisMarkers: Marker[] = analysisData.map(m => ({
+            x: m.coordinate.x,
+            y: m.coordinate.y,
+            type: 'CIRCLE',
+            label: m.score.toFixed(1)
+        }));
+        
+        // Prevent overlap: remove base markers if an analysis marker is at the same spot
+        baseMarkers = baseMarkers.filter(bm => 
+            !analysisMarkers.some(am => am.x === bm.x && am.y === bm.y)
+        );
+        return [...baseMarkers, ...analysisMarkers];
+    }
+
+    return baseMarkers;
   };
 
   return (
@@ -359,71 +421,60 @@ export default function App() {
          
          {/* Left: Game Area */}
          <div className="flex-1 overflow-y-auto p-4 lg:p-8 flex flex-col items-center gap-4">
-            
             <GameControls 
-                opponentModel={opponentModel}
-                setOpponentModel={setOpponentModel}
-                gamePhase={gamePhase}
-                setGamePhase={setGamePhase}
-                engineStatus={engineStatus}
-                board={board}
-                onCancelAi={handleCancel}
-                onForceAi={handleMakeMove}
-                onUndo={handleUndo}
-                onRedo={redo}
-                onPass={handleUserPass}
-                onResign={handleUserResign}
-                historyLength={historyStack.length}
-                redoLength={redoStack.length}
-                confirmationPending={confirmationPending}
-                setConfirmationPending={setConfirmationPending}
-                setupTool={setupTool}
-                setSetupTool={setSetupTool}
-            />
+                 opponentModel={opponentModel}
+                 setOpponentModel={setOpponentModel}
+                 gamePhase={gamePhase}
+                 setGamePhase={setGamePhase}
+                 engineStatus={engineStatus}
+                 board={board}
+                 onCancelAi={handleCancel}
+                 onForceAi={handleForceAi}
+                 onUndo={handleUndo}
+                 onRedo={redo}
+                 onPass={handleUserPass}
+                 onResign={handleUserResign}
+                 historyLength={historyStack.length}
+                 redoLength={redoStack.length}
+                 confirmationPending={confirmationPending}
+                 setConfirmationPending={setConfirmationPending}
+                 setupTool={setupTool}
+                 setSetupTool={setSetupTool}
+                 onToggleBestMoves={() => setShowBestMoves(prev => !prev)}
+                 onClearMarks={() => { setActiveMarkers([]); setShowBestMoves(false); }}
+                 showBestMoves={showBestMoves}
+             />
 
-            {/* Board */}
-            <div className="relative w-full">
-                <GoBoard 
-                    board={board} 
-                    onPlay={handlePlay} 
-                    interactive={!board.gameOver && (gamePhase === 'SETUP' || (gamePhase === 'PLAY' && engineStatus !== 'THINKING'))} 
-                    markers={activeMarkers}
-                    ghostColor={getGhostColor()}
-                />
-            </div>
+             <GoBoard 
+                 board={board}
+                 onPlay={handlePlay}
+                 interactive={gamePhase === 'SETUP' || (!board.gameOver && engineStatus !== 'THINKING')} 
+                 markers={getCombinedMarkers()}
+                 ghostColor={getGhostColor()}
+             />
 
-            <ScoreBar board={board} gameResult={gameResult} />
+             <ScoreBar board={board} gameResult={gameResult} />             
 
          </div>
 
-         {/* Right: Chat */}
-         <div className="w-full lg:w-96 border-l border-slate-200 bg-white p-4 lg:p-6 shadow-xl z-10">
-            <SenseiChat 
-                messages={messages} 
-                loading={isSenseiThinking} 
-                onSendMessage={async (text) => {
-                    addMessage('user', text);
-                    setIsSenseiThinking(true);
-                    const response = await getSenseiResponse(board, messages, text, senseiModel);
-                    setIsSenseiThinking(false);
-                    addMessage('sensei', response.text);
-                    if (response.markers) setActiveMarkers(response.markers);
-                    if (response.cost) setSessionCost(prev => prev + response.cost);
-                }}
-                senseiModel={senseiModel}
-                onModelChange={setSenseiModel}
-            />
+         {/* Right: Chat Area */}
+         <div className="w-full lg:w-[400px] bg-white border-l border-slate-200 p-4 shadow-sm z-10 flex flex-col">
+             <SenseiChat 
+                 messages={messages}
+                 loading={isSenseiThinking}
+                 onSendMessage={handleSendMessage}
+                 senseiModel={senseiModel}
+                 onModelChange={setSenseiModel}
+             />
          </div>
-
-         <GameOverModal 
-            isOpen={showGameOverModal}
-            result={gameResult}
-            onClose={() => setShowGameOverModal(false)}
-            onNewGame={handleReset}
-         />
-
       </div>
-
+      
+      <GameOverModal 
+          isOpen={showGameOverModal} 
+          result={gameResult} 
+          onClose={() => setShowGameOverModal(false)}
+          onNewGame={handleReset}
+      />
     </div>
   );
 }

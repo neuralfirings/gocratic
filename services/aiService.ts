@@ -1,6 +1,7 @@
 
+
 import { GoogleGenAI } from "@google/genai";
-import { BoardState, ChatMessage, Marker } from "../types";
+import { BoardState, ChatMessage, Marker, AnalysisMove } from "../types";
 import { boardToString } from "./gameLogic";
 import { toGtpCoordinate, fromGtpCoordinate } from "./gtpUtils";
 
@@ -26,10 +27,25 @@ CONTEXT AWARENESS & CONTINUITY:
        - **2nd Request**: Specific suggestion. Mark a candidate move for the student (○). "What happens if you play at ○ (C3)?"
        - **3rd Request**: Explanation/Answer. "Playing at ○ (C3) protects your territory."
 
+ENGINE ANALYSIS & GUIDANCE:
+- You may be provided with [ENGINE BEST MOVES]. These are the mathematically best moves, sorted by score.
+- **Evaluate the Options**: If multiple moves are suggested, think about *why* they are good. 
+  - Does one move protect a cut?
+  - Does another move expand territory?
+  - Does a third move attack a weak group?
+- **Compare and Contrast**: Instead of picking just one, guide the user to consider the different goals.
+  - "I see a few good options here. You could protect your corner, or maybe try to reduce White's space. Which feels more important right now?"
+- **Targeted Questions**: Use the engine moves to formulate your questions.
+  - If the best move is D4 (connecting): "Is your group connected safely? What if White plays here?"
+  - If the best move is F3 (attacking): "White's group looks a bit floating. Can you put pressure on it?"
+- **DO NOT** say "The engine says..." or "The computer thinks...". Make it sound like your own wisdom.
+- Use the engine's best moves as the "Target" you are guiding the student towards.
+
 INPUT:
 1. Current Board State (ASCII with Move History).
 2. Chat and Play History (Interleaved timeline of what happened).
 3. User's new message/question.
+4. Engine Analysis (Optional).
 
 OUTPUT FORMAT:
 You MUST return a RAW JSON object.
@@ -60,7 +76,8 @@ export const getSenseiResponse = async (
   board: BoardState, 
   history: ChatMessage[],
   userMessage: string,
-  modelName: string = "gemini-2.5-flash"
+  modelName: string = "gemini-2.5-flash",
+  analysisData: AnalysisMove[] = []
 ): Promise<{ text: string; markers?: Marker[], cost: number }> => {
   
   if (!process.env.API_KEY) {
@@ -96,10 +113,22 @@ export const getSenseiResponse = async (
       interleavedHistory = "...(older history truncated)...\n" + historyLines.slice(-50).join('\n');
   }
 
+  // Format analysis for prompt
+  let analysisPrompt = "Not available.";
+  if (analysisData.length > 0) {
+    analysisPrompt = analysisData.map(m => {
+        const coord = toGtpCoordinate(m.coordinate, board.size);
+        return `${coord} (Score: ${m.score})`;
+    }).join(", ");
+  }
+
   const prompt = `
     [CURRENT BOARD STATE]
     ${boardAscii}
     
+    [ENGINE BEST MOVES]
+    ${analysisPrompt}
+
     [CHAT AND PLAY HISTORY]
     ${interleavedHistory}
     
