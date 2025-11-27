@@ -52,7 +52,8 @@ export default function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   
   // Opponent Config
-  const [opponentModel, setOpponentModel] = useState<string | number>("gnugo-1"); 
+  // Default to Level 1 with correct underscore syntax
+  const [opponentModel, setOpponentModel] = useState<string | number>("gnugo_1"); 
 
   // Sensei Config
   const [senseiModel, setSenseiModel] = useState<string>("gemini-3-pro-preview");
@@ -71,8 +72,9 @@ export default function App() {
   // --- ANALYSIS LOOP ---
   // Fetch hints whenever the board history changes and the game is active
   useEffect(() => {
-    // Clear Sensei's transient markers whenever a new move occurs
+    // Clear Sensei's transient markers and Best Moves toggle whenever a new move occurs
     setActiveMarkers([]);
+    setShowBestMoves(false);
 
     const fetchHints = async () => {
         // Only fetch if game is active.
@@ -129,9 +131,12 @@ export default function App() {
         let aiPassed = false;
 
         if (typeof opponentModel === 'string') {
-            if (opponentModel.startsWith('gnugo-')) {
+            if (opponentModel.startsWith('gnugo')) {
                 // GNU Go Handler
-                const level = parseInt(opponentModel.split('-')[1], 10) || 10;
+                // Extract level from "gnugo_X" or "gnugo_-X"
+                const parts = opponentModel.split('_');
+                const level = parts.length > 1 ? parseInt(parts[1], 10) : 10;
+                
                 const result = await fetchGnuGoMove(currentBoard, level);
                 if (controller.signal.aborted) return;
                 
@@ -193,7 +198,8 @@ export default function App() {
             // Apply Move logic
             const aiState = placeStone(currentBoard, move!);
             if (aiState) {
-                applyMove(aiState, explanation || undefined);
+                // Pass currentBoard as the 2nd arg so useGoGame knows what the previous state was
+                applyMove(aiState, currentBoard); 
                 if (explanation) setLastExplanation(explanation);
             }
         }
@@ -384,8 +390,8 @@ export default function App() {
     let baseMarkers = [...activeMarkers];
     
     if (showBestMoves && analysisData.length > 0) {
-        // Map analysis to Markers
-        const analysisMarkers: Marker[] = analysisData.map(m => ({
+        // Map top 5 analysis moves to Markers
+        const analysisMarkers: Marker[] = analysisData.slice(0, 5).map(m => ({
             x: m.coordinate.x,
             y: m.coordinate.y,
             type: 'CIRCLE',

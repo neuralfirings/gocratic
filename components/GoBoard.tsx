@@ -290,9 +290,9 @@ export const GoBoard: React.FC<GoBoardProps> = ({
         </div>
         
         {/* Mobile/Compact Coordinate Footer */}
-        <div className="mt-2 text-xs text-slate-400 font-mono h-4">
+        {/* <div className="mt-2 text-xs text-slate-400 font-mono h-4">
              {hoverCoord ? `Cursor: ${getLabel(hoverCoord)}` : ''}
-        </div>
+        </div>  */}
 
     </div>
   );

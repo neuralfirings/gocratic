@@ -28,6 +28,7 @@ export const fetchGnuGoMove = async (board: BoardState, level: number): Promise<
   };
 
   try {
+    console.log("gnu api", JSON.stringify(payload))
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: { 

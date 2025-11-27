@@ -1,3 +1,4 @@
+
 # GoCratic - Socratic Go Tutor
 
 GoCratic is a web-based Go (Baduk/Weiqi) learning platform designed for children and beginners. Unlike traditional engines that simply tell you the best move, GoCratic features **Panda Sensei**, an AI tutor powered by Google Gemini that uses the Socratic method to guide players toward finding the solution themselves.
@@ -15,7 +16,7 @@ GoCratic is a web-based Go (Baduk/Weiqi) learning platform designed for children
 
 ### 🎮 Gameplay & Opponents
 *   **Dual Engine Support**:
-    *   **Gemini AI (Online)**: Play against Google's Gemini models (2.5 Flash, 2.5 Pro, 3.0 Pro). These models provide strategic, natural-feeling moves.
+    *   **Gemini AI (Online)**: Play against Google's Gemini models (Flash Lite, 2.5 Flash, 3.0 Pro). These models provide strategic, natural-feeling moves.
     *   **Monte Carlo (Offline)**: A pure JavaScript engine that runs entirely in your browser.
         *   **Adjustable Depth**: Configure the strength by setting the number of simulations per spot (e.g., 2 sims/spot for instant moves, 200 sims/spot for stronger play).
 *   **Controls**:

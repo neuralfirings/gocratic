@@ -60,9 +60,10 @@ export const useGoGame = (size: number = 9) => {
         return { success: true, newState: nextState };
     }, [board, gamePhase, setupTool]);
 
-    // Apply an external move (e.g. AI) without validation checks usually done for UI clicks
-    const applyMove = useCallback((newState: BoardState, explanation?: string) => {
-        pushHistory(board);
+    // Apply an external move (e.g. AI). 
+    // `fromState` allows passing the board state explicitly to fix stale closure issues in async calls.
+    const applyMove = useCallback((newState: BoardState, fromState?: BoardState) => {
+        pushHistory(fromState || board);
         setBoard(newState);
     }, [board]);
 

@@ -1,5 +1,4 @@
 
-
 import React from 'react';
 import { BoardState, EngineStatus, GamePhase, SetupTool } from '../types';
 
@@ -61,22 +60,27 @@ export const GameControls: React.FC<GameControlsProps> = ({
                         onChange={(e) => setOpponentModel(e.target.value)}
                         className="bg-slate-50 border border-slate-300 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2 font-medium truncate max-w-[120px] md:max-w-[180px]"
                     >
-                        <optgroup label="Gemini AI (Cloud)">
+                        {/* <optgroup label="Gemini AI (Cloud)">
+                            <option value="gemini-flash-lite-latest">Gemini 2.0 Flash Lite</option>
                             <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                            <option value="gemini-2.5-pro-preview">Gemini 2.5 Pro</option>
                             <option value="gemini-3-pro-preview">Gemini 3.0 Pro</option>
-                        </optgroup>
+                        </optgroup> */}
                         <optgroup label="GNU Go (API)">
-                            <option value="gnugo-1">GNU Go Lvl 1</option>
-                            <option value="gnugo-2">GNU Go Lvl 2</option>
-                            <option value="gnugo-3">GNU Go Lvl 3</option>
-                            <option value="gnugo-4">GNU Go Lvl 4</option>
-                            <option value="gnugo-5">GNU Go Lvl 5 (Mid)</option>
-                            <option value="gnugo-6">GNU Go Lvl 6</option>
-                            <option value="gnugo-7">GNU Go Lvl 7</option>
-                            <option value="gnugo-8">GNU Go Lvl 8</option>
-                            <option value="gnugo-9">GNU Go Lvl 9</option>
-                            <option value="gnugo-10">GNU Go Lvl 10 (High)</option>
+                            <option value="gnugo_-5">GNU Go Lvl -5</option>
+                            <option value="gnugo_-4">GNU Go Lvl -4</option>
+                            <option value="gnugo_-3">GNU Go Lvl -3</option>
+                            <option value="gnugo_-2">GNU Go Lvl -2</option>
+                            <option value="gnugo_-1">GNU Go Lvl -1</option>
+                            <option value="gnugo_1">GNU Go Lvl 1</option>
+                            <option value="gnugo_2">GNU Go Lvl 2</option>
+                            <option value="gnugo_3">GNU Go Lvl 3</option>
+                            <option value="gnugo_4">GNU Go Lvl 4</option>
+                            <option value="gnugo_5">GNU Go Lvl 5 (Mid)</option>
+                            <option value="gnugo_6">GNU Go Lvl 6</option>
+                            <option value="gnugo_7">GNU Go Lvl 7</option>
+                            <option value="gnugo_8">GNU Go Lvl 8</option>
+                            <option value="gnugo_9">GNU Go Lvl 9</option>
+                            <option value="gnugo_10">GNU Go Lvl 10 (High)</option>
                         </optgroup>
                     </select>
 
@@ -114,7 +118,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
                 <div className="flex items-center gap-2">
                     <button 
                         onClick={onToggleBestMoves} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold border border-slate-300">
-                        show best moves
+                        {showBestMoves ? 'Hide Hints' : 'Best Moves'}
                     </button>
                     
                     <button 

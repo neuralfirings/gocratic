@@ -60,9 +60,8 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
             onChange={(e) => onModelChange(e.target.value)}
             className="text-xs bg-indigo-700 text-white border border-indigo-500 rounded px-2 py-1 outline-none hover:bg-indigo-600 focus:ring-1 focus:ring-indigo-300 transition"
         >
+            <option value="gemini-flash-lite-latest">2.0 Flash Lite</option>
             <option value="gemini-2.5-flash">2.5 Flash</option>
-            <option value="gemini-flash-lite-latest">2.5 Flash-Lite</option>
-            <option value="gemini-2.5-pro-preview">2.5 Pro</option>
             <option value="gemini-3-pro-preview">3.0 Pro</option>
         </select>
       </div>
