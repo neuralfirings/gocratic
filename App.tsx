@@ -34,13 +34,18 @@ export default function App() {
 
   const [showGameOverModal, setShowGameOverModal] = useState(false);
 
+  // Chat & UI State
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     sender: 'sensei',
     text: "Welcome! I'm Panda Sensei. Let's play Go! Ask me anything about the game.",
     moveNumber: 0
   }]);
-  
+
+  // Mobile Chat State
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadSenseiMsg, setUnreadSenseiMsg] = useState<string | null>(null);
+
   const [activeMarkers, setActiveMarkers] = useState<Marker[]>([]);
   
   // Analysis State
@@ -52,7 +57,6 @@ export default function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   
   // Opponent Config
-  // Default to Level 1 with correct underscore syntax
   const [opponentModel, setOpponentModel] = useState<string | number>("gnugo_1"); 
 
   // Sensei Config
@@ -90,6 +94,32 @@ export default function App() {
 
     fetchHints();
   }, [board.history.length, board.gameOver, board.turn]);
+
+  // Mobile Notification Logic
+  // Use a ref to track which message ID triggered the last notification
+  // This prevents the notification from reappearing when 'isChatOpen' toggles false
+  // but the message list hasn't effectively changed.
+  const lastNotifiedMsgIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.sender === 'sensei') {
+          // Only notify if we haven't processed this message ID yet
+          if (lastNotifiedMsgIdRef.current !== lastMsg.id) {
+              lastNotifiedMsgIdRef.current = lastMsg.id;
+              if (!isChatOpen) {
+                  setUnreadSenseiMsg(lastMsg.text);
+              }
+          }
+      }
+  }, [messages, isChatOpen]);
+
+  // Clear unread on open
+  useEffect(() => {
+      if (isChatOpen) {
+          setUnreadSenseiMsg(null);
+      }
+  }, [isChatOpen]);
 
   const addMessage = (sender: 'user' | 'sensei', text: string) => {
     const moveNumber = board.history.length;
@@ -133,7 +163,6 @@ export default function App() {
         if (typeof opponentModel === 'string') {
             if (opponentModel.startsWith('gnugo')) {
                 // GNU Go Handler
-                // Extract level from "gnugo_X" or "gnugo_-X"
                 const parts = opponentModel.split('_');
                 const level = parts.length > 1 ? parseInt(parts[1], 10) : 10;
                 
@@ -198,7 +227,6 @@ export default function App() {
             // Apply Move logic
             const aiState = placeStone(currentBoard, move!);
             if (aiState) {
-                // Pass currentBoard as the 2nd arg so useGoGame knows what the previous state was
                 applyMove(aiState, currentBoard); 
                 if (explanation) setLastExplanation(explanation);
             }
@@ -309,7 +337,6 @@ export default function App() {
               const result = parseSgf(content);
 
               if (result.isValid) {
-                  // Reconstruct board by replaying moves
                   let newBoard = createBoard(result.size);
                   const newHistoryStack: BoardState[] = [];
 
@@ -398,7 +425,6 @@ export default function App() {
             label: m.score.toFixed(1)
         }));
         
-        // Prevent overlap: remove base markers if an analysis marker is at the same spot
         baseMarkers = baseMarkers.filter(bm => 
             !analysisMarkers.some(am => am.x === bm.x && am.y === bm.y)
         );
@@ -423,9 +449,9 @@ export default function App() {
           onCopyGnu={(msg) => addMessage('sensei', msg)}
       />
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+      <div className="flex-1 flex flex-row overflow-hidden relative">
          
-         {/* Left: Game Area */}
+         {/* Left: Game Area (Full width on Mobile) */}
          <div className="flex-1 overflow-y-auto p-4 lg:p-8 flex flex-col items-center gap-4">
             <GameControls 
                  opponentModel={opponentModel}
@@ -460,20 +486,91 @@ export default function App() {
              />
 
              <ScoreBar board={board} gameResult={gameResult} />             
-
          </div>
 
-         {/* Right: Chat Area */}
-         <div className="w-full lg:w-[400px] bg-white border-l border-slate-200 p-4 shadow-sm z-10 flex flex-col">
+         {/* Desktop Chat Sidebar (Hidden on Mobile) */}
+         <div className="hidden lg:flex w-[400px] bg-white border-l border-slate-200 p-0 shadow-sm z-10 flex-col h-full">
              <SenseiChat 
                  messages={messages}
                  loading={isSenseiThinking}
                  onSendMessage={handleSendMessage}
                  senseiModel={senseiModel}
                  onModelChange={setSenseiModel}
+                 className="h-full rounded-none border-none shadow-none"
              />
          </div>
       </div>
+
+      {/* --- MOBILE CHAT WIDGETS --- */}
+
+      {/* Floating Notification Bubble */}
+      {unreadSenseiMsg && !isChatOpen && (
+          <div 
+            className="lg:hidden fixed bottom-24 right-4 z-40 max-w-[280px] bg-white rounded-2xl rounded-br-sm shadow-xl border border-indigo-100 animate-in slide-in-from-bottom-4 duration-300 transition-colors"
+          >
+              <button 
+                  onClick={(e) => {
+                      e.stopPropagation();
+                      setUnreadSenseiMsg(null);
+                  }}
+                  className="absolute top-2 right-2 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors z-50"
+                  aria-label="Close notification"
+              >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+              </button>
+              
+              <div 
+                  onClick={() => setIsChatOpen(true)}
+                  className="p-4 pr-8 cursor-pointer hover:bg-slate-50 rounded-2xl rounded-br-sm"
+              >
+                  <div className="flex items-start gap-3">
+                      <div className="text-2xl shrink-0">🐼</div>
+                      <div className="text-sm text-slate-700 line-clamp-3">
+                          {unreadSenseiMsg}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Floating Action Button (FAB) */}
+      {!isChatOpen && (
+          <button 
+            onClick={() => setIsChatOpen(true)}
+            className="lg:hidden fixed bottom-6 right-6 z-40 w-14 h-14 bg-indigo-600 rounded-full shadow-lg shadow-indigo-300 flex items-center justify-center text-white hover:bg-indigo-700 transition-transform active:scale-95"
+            aria-label="Open Chat"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-7 h-7">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+            </svg>
+            {/* Unread indicator dot */}
+            {unreadSenseiMsg && (
+                <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 border-2 border-white rounded-full"></span>
+            )}
+          </button>
+      )}
+
+      {/* Mobile Modal Overlay */}
+      {isChatOpen && (
+          <div className="lg:hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+              {/* Tap backdrop to close */}
+              <div className="absolute inset-0" onClick={() => setIsChatOpen(false)}></div>
+              
+              <div className="relative w-full h-[85vh] sm:h-[600px] sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl animate-in slide-in-from-bottom-10 duration-300 flex flex-col">
+                  <SenseiChat 
+                      messages={messages}
+                      loading={isSenseiThinking}
+                      onSendMessage={handleSendMessage}
+                      senseiModel={senseiModel}
+                      onModelChange={setSenseiModel}
+                      className="h-full border-none rounded-none shadow-none"
+                      onClose={() => setIsChatOpen(false)}
+                  />
+              </div>
+          </div>
+      )}
       
       <GameOverModal 
           isOpen={showGameOverModal} 
