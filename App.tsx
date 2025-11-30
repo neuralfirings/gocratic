@@ -417,8 +417,9 @@ export default function App() {
     let baseMarkers = [...activeMarkers];
     
     if (showBestMoves && analysisData.length > 0) {
-        // Map top 5 analysis moves to Markers
-        const analysisMarkers: Marker[] = analysisData.slice(0, 5).map(m => ({
+        // Map top {maxHints} analysis moves to Markers
+        const maxHints = 999;
+        const analysisMarkers: Marker[] = analysisData.slice(0, maxHints).map(m => ({
             x: m.coordinate.x,
             y: m.coordinate.y,
             type: 'CIRCLE',
@@ -527,7 +528,7 @@ export default function App() {
               >
                   <div className="flex items-start gap-3">
                       <div className="text-2xl shrink-0">🐼</div>
-                      <div className="text-sm text-slate-700 line-clamp-3">
+                      <div className="text-sm text-slate-700 line-clamp-2">
                           {unreadSenseiMsg}
                       </div>
                   </div>

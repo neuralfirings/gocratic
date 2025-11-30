@@ -94,6 +94,9 @@ export const fetchGnuGoHints = async (board: BoardState): Promise<AnalysisMove[]
     size: board.size,
     moves: moves
   };
+  if (!window.location.hostname.includes('run.app')) {
+    console.log("⚪️ [GNUGo] Requesty Body", payload);
+  }
 
   try {
     const response = await fetch(API_URL, {
@@ -110,6 +113,9 @@ export const fetchGnuGoHints = async (board: BoardState): Promise<AnalysisMove[]
     }
 
     const data = await response.json();
+    if (!window.location.hostname.includes('run.app')) {
+      console.log("⚪️ [GNUGo] Response", data);
+    }
     // Expected format: "H4 13.82 G9 6.68 E3 0.41"
     const resultStr = data.result; 
     
