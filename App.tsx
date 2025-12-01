@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat } from './components/SenseiChat';
@@ -76,6 +75,8 @@ export default function App() {
   // --- ANALYSIS LOOP ---
   // Fetch hints whenever the board history changes and the game is active
   useEffect(() => {
+    let ignore = false; // Flag to handle race conditions
+
     // Clear Sensei's transient markers and Best Moves toggle whenever a new move occurs
     setActiveMarkers([]);
     setShowBestMoves(false);
@@ -83,17 +84,25 @@ export default function App() {
     const fetchHints = async () => {
         // Only fetch if game is active.
         if (board.gameOver) {
-            setAnalysisData([]);
+            if (!ignore) setAnalysisData([]);
             return;
         }
         
         // Fetch hints for the current state (helps the current player)
         const hints = await fetchGnuGoHints(board);
-        setAnalysisData(hints);
+        
+        // Only update state if this effect hasn't been cleaned up (overridden by a newer move)
+        if (!ignore) {
+            setAnalysisData(hints);
+        }
     };
 
     fetchHints();
-  }, [board.history.length, board.gameOver, board.turn]);
+
+    return () => {
+        ignore = true;
+    };
+  }, [board.history.length, board.gameOver, board.turn, board]);
 
   // Mobile Notification Logic
   // Use a ref to track which message ID triggered the last notification
@@ -418,7 +427,7 @@ export default function App() {
     
     if (showBestMoves && analysisData.length > 0) {
         // Map top {maxHints} analysis moves to Markers
-        const maxHints = 999;
+        const maxHints = 5;
         const analysisMarkers: Marker[] = analysisData.slice(0, maxHints).map(m => ({
             x: m.coordinate.x,
             y: m.coordinate.y,
