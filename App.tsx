@@ -6,26 +6,16 @@ import { GameOverModal } from './components/GameOverModal';
 import { Navbar } from './components/Navbar';
 import { GameControls } from './components/GameControls';
 import { ScoreBar } from './components/ScoreBar';
+import { MobileChatWidget } from './components/MobileChatWidget';
 
 import { createBoard, placeStone } from './services/gameLogic';
-import { useGoGame } from './hooks/useGoGame';
-
-import { generateMove, getLevelSimulations } from './services/simpleAi';
-import { getGeminiMove } from './services/geminiEngine';
-import { fetchGnuGoMove, fetchGnuGoHints } from './services/gnugoService';
-import { getSenseiResponse, getBadMoveFeedback } from './services/aiService';
 import { generateSgf, parseSgf } from './services/sgfService';
-import { BoardState, Coordinate, ChatMessage, Marker, EngineStatus, StoneColor, AnalysisMove } from './types';
+import { BoardState, Coordinate, ChatMessage, Marker, StoneColor } from './types';
 
-const GOOD_MOVE_PHRASES = [
-    "That's a better choice!",
-    "Much stronger move.",
-    "Good correction.",
-    "That looks solid.",
-    "Excellent choice."
-];
-
-const getRandom = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+// Hooks
+import { useGoGame } from './hooks/useGoGame';
+import { useAnalysis } from './hooks/useAnalysis';
+import { useAiCoach } from './hooks/useAiCoach';
 
 export default function App() {
   const [gameMode, setGameMode] = useState<'FREE' | 'PUZZLE'>('FREE');
@@ -44,7 +34,7 @@ export default function App() {
 
   const [showGameOverModal, setShowGameOverModal] = useState(false);
 
-  // Chat & UI State
+  // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     sender: 'sensei',
@@ -52,74 +42,50 @@ export default function App() {
     moveNumber: 0
   }]);
 
-  // Mobile Chat State
+  const addMessage = useCallback((sender: 'user' | 'sensei', text: string) => {
+    setMessages(prev => [...prev, { 
+      id: Date.now().toString(), 
+      sender, 
+      text,
+      moveNumber: board.history.length 
+    }]);
+  }, [board.history.length]);
+
+  // Mobile Chat UI State
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadSenseiMsg, setUnreadSenseiMsg] = useState<string | null>(null);
   const [previewDismissed, setPreviewDismissed] = useState(false);
 
-  const [activeMarkers, setActiveMarkers] = useState<Marker[]>([]);
-  
-  // Analysis State
-  const [analysisData, setAnalysisData] = useState<AnalysisMove[]>([]);
+  // Config State
+  const [opponentModel, setOpponentModel] = useState<string | number>("gnugo_1"); 
+  const [senseiModel, setSenseiModel] = useState<string>("gemini-3-pro-preview");
   const [showBestMoves, setShowBestMoves] = useState(false);
 
-  // Engine State
-  const [engineStatus, setEngineStatus] = useState<EngineStatus>('READY');
-  const abortControllerRef = useRef<AbortController | null>(null);
+  // --- CUSTOM HOOKS ---
+  const { analysisData, setAnalysisData } = useAnalysis(board);
   
-  // Feedback State
-  const feedbackAbortController = useRef<AbortController | null>(null);
-  const [lastMoveQuestionable, setLastMoveQuestionable] = useState(false);
-  const [isWaitingForCorrection, setIsWaitingForCorrection] = useState(false);
+  const {
+      engineStatus,
+      isSenseiThinking,
+      setIsSenseiThinking,
+      activeMarkers,
+      setActiveMarkers,
+      sessionCost,
+      isWaitingForCorrection,
+      setIsWaitingForCorrection,
+      triggerAiMove,
+      cancelAiMove,
+      handleSendMessage,
+      checkBadMove,
+      resetCoach,
+      stopFeedback
+  } = useAiCoach({ addMessage, setPreviewDismissed });
 
-  // Opponent Config
-  const [opponentModel, setOpponentModel] = useState<string | number>("gnugo_1"); 
-
-  // Sensei Config
-  const [senseiModel, setSenseiModel] = useState<string>("gemini-3-pro-preview");
-  const [isSenseiThinking, setIsSenseiThinking] = useState(false);
-
-  const [lastExplanation, setLastExplanation] = useState<string | null>(null);
-
-  // Cost Tracking
-  const [sessionCost, setSessionCost] = useState<number>(0);
 
   // Show Modal when Game Result is set
   useEffect(() => {
     setShowGameOverModal(!!gameResult);
   }, [gameResult]);
-
-  // --- ANALYSIS LOOP ---
-  // Fetch hints whenever the board history changes and the game is active
-  useEffect(() => {
-    let ignore = false; // Flag to handle race conditions
-
-    // Clear Sensei's transient markers and Best Moves toggle whenever a new move occurs
-    setActiveMarkers([]);
-    setShowBestMoves(false);
-
-    const fetchHints = async () => {
-        // Only fetch if game is active.
-        if (board.gameOver) {
-            if (!ignore) setAnalysisData([]);
-            return;
-        }
-        
-        // Fetch hints for the current state (helps the current player)
-        const hints = await fetchGnuGoHints(board);
-        
-        // Only update state if this effect hasn't been cleaned up (overridden by a newer move)
-        if (!ignore) {
-            setAnalysisData(hints);
-        }
-    };
-
-    fetchHints();
-
-    return () => {
-        ignore = true;
-    };
-  }, [board.history.length, board.gameOver, board.turn, board]);
 
   // Mobile Notification Logic
   const lastNotifiedMsgIdRef = useRef<string | null>(null);
@@ -127,12 +93,11 @@ export default function App() {
   useEffect(() => {
       const lastMsg = messages[messages.length - 1];
       if (lastMsg && lastMsg.sender === 'sensei') {
-          // Only notify if we haven't processed this message ID yet
           if (lastNotifiedMsgIdRef.current !== lastMsg.id) {
               lastNotifiedMsgIdRef.current = lastMsg.id;
               if (!isChatOpen) {
                   setUnreadSenseiMsg(lastMsg.text);
-                  setPreviewDismissed(false); // Reset dismissal on new message
+                  setPreviewDismissed(false);
               }
           }
       }
@@ -145,15 +110,6 @@ export default function App() {
       }
   }, [isChatOpen]);
 
-  const addMessage = (sender: 'user' | 'sensei', text: string) => {
-    const moveNumber = board.history.length;
-    setMessages(prev => [...prev, { 
-      id: Date.now().toString(), 
-      sender, 
-      text,
-      moveNumber
-    }]);
-  };
 
   const getGhostColor = (): StoneColor | 'ERASER' => {
       if (gamePhase === 'SETUP') {
@@ -164,122 +120,11 @@ export default function App() {
       return board.turn;
   };
 
-  // --- AI LOGIC ---
-
-  const triggerAiMove = useCallback(async (currentBoard: BoardState) => {
-    if (currentBoard.gameOver) return;
-    
-    setEngineStatus('THINKING');
-    
-    if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    try {
-        let move: Coordinate | null = null;
-        let explanation: string | null = null;
-        let moveCost = 0;
-        let aiResigned = false;
-        let aiPassed = false;
-
-        if (typeof opponentModel === 'string') {
-            if (opponentModel.startsWith('gnugo')) {
-                // GNU Go Handler
-                const parts = opponentModel.split('_');
-                const level = parts.length > 1 ? parseInt(parts[1], 10) : 10;
-                
-                const result = await fetchGnuGoMove(currentBoard, level);
-                if (controller.signal.aborted) return;
-                
-                if (result.isResign) {
-                    aiResigned = true;
-                    explanation = "GNU Go resigns.";
-                } else if (result.isPass) {
-                    aiPassed = true;
-                    explanation = "GNU Go passes.";
-                } else {
-                    move = result.move;
-                    explanation = `GNU Go (Level ${level}) plays.`;
-                }
-            } else {
-                // Gemini Handler
-                const result = await getGeminiMove(currentBoard, opponentModel);
-                if (controller.signal.aborted) return;
-
-                if (result) {
-                  if (result.isResign) {
-                      aiResigned = true;
-                      explanation = result.reason;
-                      moveCost = result.cost;
-                  } else if (result.isPass) {
-                      aiPassed = true;
-                      explanation = result.reason;
-                      moveCost = result.cost;
-                  } else {
-                      move = result.move;
-                      explanation = result.reason;
-                      moveCost = result.cost;
-                  }
-                }
-            }
-        } else {
-            // Monte Carlo (Local) Handler
-            const simCount = getLevelSimulations(opponentModel);
-            move = await generateMove(currentBoard, simCount, controller.signal);
-            // Simple AI passes if no move found (null)
-            if (!move) aiPassed = true;
-        }
-        
-        if (controller.signal.aborted) return;
-
-        setEngineStatus('READY');
-        if (moveCost > 0) setSessionCost(prev => prev + moveCost);
-
-        if (aiResigned) {
-            addMessage('sensei', `White Resigns. ${explanation || ''} Calculating final score...`);
-            const res = await endGameWithScore(currentBoard);
-            addMessage('sensei', `Game Over! Black wins. (Score: +${res.score?.diff ?? 0}, Chinese Rules, Komi 0)`);
-        } else if (aiPassed) {
-             addMessage('sensei', "White passes.");
-             const { gameOver, result } = await passTurn();
-             if (gameOver && result) {
-                addMessage('sensei', `Game Over! ${result.winner === 'BLACK' ? 'Black' : 'White'} wins by ${result.score?.diff ?? 0} points.`);
-             }
-        } else if (move) {
-            // Apply Move logic
-            const aiState = placeStone(currentBoard, move!);
-            if (aiState) {
-                applyMove(aiState, currentBoard); 
-                if (explanation) setLastExplanation(explanation);
-            }
-        }
-    } catch (e: any) {
-        if (e.message === 'Aborted' || e.name === 'AbortError') {
-            // ignore
-        } else {
-            console.error("Engine Generate Error", e);
-            addMessage('sensei', "I'm having trouble connecting to the game server. Please try again.");
-        }
-        setEngineStatus('READY');
-    } finally {
-        if (abortControllerRef.current === controller) {
-            abortControllerRef.current = null;
-        }
-    }
-  }, [opponentModel, applyMove, endGameWithScore, passTurn]);
-
-  const handleCancel = () => {
-      if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-      }
-      setEngineStatus('READY');
-  };
+  // --- HANDLERS ---
 
   const handleForceAi = () => {
       if (board.turn === 'WHITE' && engineStatus !== 'THINKING' && !board.gameOver) {
-          triggerAiMove(board);
+          triggerAiMove(board, opponentModel, { applyMove, passTurn, endGameWithScore });
       }
   };
 
@@ -297,15 +142,14 @@ export default function App() {
       } else {
           // Trigger AI to play
           if (gameMode === 'FREE') {
-            setTimeout(() => triggerAiMove(nextState), 50);
+            setTimeout(() => {
+                triggerAiMove(nextState, opponentModel, { applyMove, passTurn, endGameWithScore });
+            }, 50);
           }
       }
   };
 
   const handlePlay = useCallback(async (c: Coordinate) => {
-    // Capture hints before move (hints are for the current state)
-    const currentHints = [...analysisData];
-    
     // Attempt move
     const result = playMove(c);
     
@@ -314,68 +158,21 @@ export default function App() {
         return;
     }
 
-    // CHECK FOR HINTS AND FEEDBACK
-    const isInHints = currentHints.some(h => h.coordinate.x === c.x && h.coordinate.y === c.y);
-    let shouldBlockAi = false;
-
-    // Only trigger feedback if we have enough confidence (at least 3 suggested moves)
-    // AND it is not the first move of the game (allow creative opening)
-    if (currentHints.length >= 3 && !isInHints && board.history.length > 0) {
-        // BAD MOVE FLOW
-        shouldBlockAi = true;
-        setLastMoveQuestionable(true);
-        setIsWaitingForCorrection(true);
-        setPreviewDismissed(false); // Ensure the preview bubble shows up to indicate thinking/advice
-        
-        // Abort previous feedback request if any
-        if (feedbackAbortController.current) feedbackAbortController.current.abort();
-        const controller = new AbortController();
-        feedbackAbortController.current = controller;
-
-        setIsSenseiThinking(true);
-        try {
-            // We pass the OLD board (board) because that's what the hints are based on.
-            const feedback = await getBadMoveFeedback(board, c, currentHints);
-            if (!controller.signal.aborted) {
-                if (feedback.text) {
-                    addMessage('sensei', feedback.text);
-                    if (feedback.cost > 0) setSessionCost(prev => prev + feedback.cost);
-                }
-            }
-        } catch (e) {
-            console.error("Feedback error", e);
-        } finally {
-            if (feedbackAbortController.current === controller) {
-                setIsSenseiThinking(false);
-            }
-        }
-
-    } else if (isInHints) {
-        // GOOD MOVE FLOW
-        if (lastMoveQuestionable) {
-            addMessage('sensei', getRandom(GOOD_MOVE_PHRASES));
-            setLastMoveQuestionable(false);
-        }
-        // Cancel any pending "Bad Move" feedback if they corrected themselves quickly
-        if (feedbackAbortController.current) {
-            feedbackAbortController.current.abort();
-            feedbackAbortController.current = null;
-        }
-        setIsSenseiThinking(false);
-        setIsWaitingForCorrection(false);
-    }
+    // Check Bad Move (Uses the *old* board state and analysis data for context)
+    const isBadMove = await checkBadMove(board, c, analysisData);
 
     const nextState = result.newState;
 
     // AI Turn Trigger - ONLY if not blocking for correction
-    if (gamePhase === 'PLAY' && gameMode === 'FREE' && nextState && !nextState.gameOver && !shouldBlockAi) {
+    if (gamePhase === 'PLAY' && gameMode === 'FREE' && nextState && !nextState.gameOver && !isBadMove) {
+        // Slight delay to allow UI to update first
         setTimeout(() => {
             if (nextState.turn === 'WHITE') {
-                triggerAiMove(nextState);
+                triggerAiMove(nextState, opponentModel, { applyMove, passTurn, endGameWithScore });
             }
         }, 50);
     }
-  }, [playMove, gameMode, gamePhase, triggerAiMove, analysisData, board, lastMoveQuestionable]);
+  }, [playMove, gameMode, gamePhase, triggerAiMove, analysisData, board, checkBadMove, opponentModel, applyMove, passTurn, endGameWithScore, addMessage]);
 
   const handleReset = () => {
         reset();
@@ -385,14 +182,9 @@ export default function App() {
             text: "Ready for a new game! Good luck!",
             moveNumber: 0
         }]);
-        setEngineStatus('READY');
+        resetCoach();
         setAnalysisData([]);
         setShowBestMoves(false);
-        setActiveMarkers([]);
-        setLastMoveQuestionable(false);
-        setIsWaitingForCorrection(false);
-        if (feedbackAbortController.current) feedbackAbortController.current.abort();
-        setIsSenseiThinking(false);
         setUnreadSenseiMsg(null);
         setPreviewDismissed(true);
   };
@@ -424,22 +216,13 @@ export default function App() {
                   let newBoard = createBoard(result.size);
                   const newHistoryStack: BoardState[] = [];
 
-                  // RESET BLOCKING STATES
-                  setLastMoveQuestionable(false);
-                  setIsWaitingForCorrection(false);
-                  if (feedbackAbortController.current) {
-                      feedbackAbortController.current.abort();
-                      feedbackAbortController.current = null;
-                  }
-                  setIsSenseiThinking(false);
+                  resetCoach();
                   setGamePhase('PLAY');
 
                   for (const move of result.moves) {
-                      // Synchronize turn to SGF move color to avoid sync issues
                       if (newBoard.turn !== move.color) {
                            newBoard = { ...newBoard, turn: move.color };
                       }
-
                       if (move.coordinate.x === -1) {
                           const nextState: BoardState = {
                               ...newBoard,
@@ -466,7 +249,6 @@ export default function App() {
                       text: "SGF Game loaded successfully!",
                       moveNumber: newBoard.history.length
                   }]);
-                  setEngineStatus('READY');
               } else {
                   addMessage('sensei', "Could not parse SGF file.");
               }
@@ -480,69 +262,41 @@ export default function App() {
   };
 
   const handleUndo = () => {
-      // Abort feedback if any to prevent delayed scolding after undo
-      if (feedbackAbortController.current) {
-          feedbackAbortController.current.abort();
-          feedbackAbortController.current = null;
-      }
-      setIsSenseiThinking(false);
+      stopFeedback();
       setIsWaitingForCorrection(false); // Reset waiting state on undo
       setUnreadSenseiMsg(null); // Clear bubble
 
       undo();
-      setEngineStatus('READY');
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-      setAnalysisData([]); // Clear old analysis
-      setShowBestMoves(false); // Hide markers
+      cancelAiMove();
+      setAnalysisData([]); 
+      setShowBestMoves(false); 
       setActiveMarkers([]);
   };
 
   const handleContinueAfterBadMove = () => {
-      // Cancel pending feedback to stop loading indicator
-      if (feedbackAbortController.current) {
-          feedbackAbortController.current.abort();
-          feedbackAbortController.current = null;
-      }
-      setIsSenseiThinking(false);
-      
+      stopFeedback();
       setIsWaitingForCorrection(false);
       setUnreadSenseiMsg(null); // Clear bubble
 
       // Trigger the AI move that was blocked
       if (board.turn === 'WHITE') {
-          triggerAiMove(board);
+          triggerAiMove(board, opponentModel, { applyMove, passTurn, endGameWithScore });
       }
   };
 
-  const handleSendMessage = async (text: string) => {
-    addMessage('user', text);
-    setIsSenseiThinking(true);
+  const onSendMessageWrapper = (text: string) => {
+      handleSendMessage(text, board, messages, senseiModel, analysisData);
+  };
 
-    const response = await getSenseiResponse(
-        board, 
-        messages, 
-        text, 
-        senseiModel,
-        analysisData // Pass analysis data to Sensei
-    );
-
-    setIsSenseiThinking(false);
-    
-    if (response.cost > 0) setSessionCost(prev => prev + response.cost);
-    
-    addMessage('sensei', response.text);
-    
-    if (response.markers) {
-        setActiveMarkers(response.markers);
-    }
+  const handleDismissPreview = () => {
+      setPreviewDismissed(true);
+      setUnreadSenseiMsg(null);
   };
 
   // Combine Sensei markers with "Best Moves" if enabled
   const getCombinedMarkers = (): Marker[] => {
     let baseMarkers = [...activeMarkers];
-    
     if (showBestMoves && analysisData.length > 0) {
-        // Map top {maxHints} analysis moves to Markers
         const maxHints = 5;
         const analysisMarkers: Marker[] = analysisData.slice(0, maxHints).map(m => ({
             x: m.coordinate.x,
@@ -556,11 +310,9 @@ export default function App() {
         );
         return [...baseMarkers, ...analysisMarkers];
     }
-
     return baseMarkers;
   };
 
-  // Define chat actions
   const chatActions: ChatAction[] = isWaitingForCorrection ? [
       { 
           label: "Try Again (Undo)", 
@@ -573,8 +325,6 @@ export default function App() {
           variant: 'primary' 
       }
   ] : [];
-
-  const shouldShowBubble = !isChatOpen && !previewDismissed && (unreadSenseiMsg || (isWaitingForCorrection && isSenseiThinking));
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
@@ -593,9 +343,7 @@ export default function App() {
 
       <div className="flex-1 flex flex-row overflow-hidden relative">
          
-         {/* Left: Game Area (Full width on Mobile) */}
          <div className="flex-1 overflow-y-auto p-4 lg:p-8 flex flex-col items-center gap-4">
-             {/* REPLACEMENT: Pause Bar or Game Controls */}
              {isWaitingForCorrection ? (
                  <div className="w-full bg-amber-500 text-white px-4 py-3 rounded-xl shadow-sm border border-amber-600 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 min-h-[3.8rem]">
                      <div className="flex items-center gap-3">
@@ -631,7 +379,7 @@ export default function App() {
                      setGamePhase={setGamePhase}
                      engineStatus={engineStatus}
                      board={board}
-                     onCancelAi={handleCancel}
+                     onCancelAi={cancelAiMove}
                      onForceAi={handleForceAi}
                      onUndo={handleUndo}
                      onRedo={redo}
@@ -656,18 +404,16 @@ export default function App() {
                  markers={getCombinedMarkers()}
                  ghostColor={getGhostColor()}
                  isWaitingForCorrection={isWaitingForCorrection}
-                 // onContinue is now handled in the replaced GameControls bar, so strictly not needed inside Board anymore, but removing prop is safer in GoBoard.tsx
              />
 
              <ScoreBar board={board} gameResult={gameResult} />             
          </div>
 
-         {/* Desktop Chat Sidebar (Hidden on Mobile) */}
          <div className="hidden lg:flex w-[400px] bg-white border-l border-slate-200 p-0 shadow-sm z-10 flex-col h-full">
              <SenseiChat 
                  messages={messages}
                  loading={isSenseiThinking}
-                 onSendMessage={handleSendMessage}
+                 onSendMessage={onSendMessageWrapper}
                  senseiModel={senseiModel}
                  onModelChange={setSenseiModel}
                  className="h-full rounded-none border-none shadow-none"
@@ -677,88 +423,20 @@ export default function App() {
          </div>
       </div>
 
-      {/* --- MOBILE CHAT WIDGETS --- */}
-
-      {/* Floating Notification Bubble */}
-      {shouldShowBubble && (
-          <div 
-            className="lg:hidden fixed bottom-24 right-4 z-40 max-w-[280px] bg-white rounded-2xl rounded-br-sm shadow-xl border border-indigo-100 animate-in slide-in-from-bottom-4 duration-300 transition-colors"
-          >
-              <button 
-                  onClick={(e) => {
-                      e.stopPropagation();
-                      setPreviewDismissed(true);
-                      setUnreadSenseiMsg(null);
-                  }}
-                  className="absolute top-2 right-2 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors z-50"
-                  aria-label="Close notification"
-              >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                  </svg>
-              </button>
-              
-              <div 
-                  onClick={() => setIsChatOpen(true)}
-                  className="p-4 pr-8 cursor-pointer hover:bg-slate-50 rounded-2xl rounded-br-sm min-h-[3rem] flex items-center"
-              >
-                  <div className="flex items-start gap-3 w-full">
-                      <div className="text-2xl shrink-0">🤖</div>
-                      
-                      {isWaitingForCorrection && isSenseiThinking ? (
-                         <div className="flex space-x-1 py-1">
-                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                         </div>
-                      ) : (
-                         <div className="text-sm text-slate-700 line-clamp-2">
-                             {unreadSenseiMsg}
-                         </div>
-                      )}
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* Floating Action Button (FAB) */}
-      {!isChatOpen && (
-          <button 
-            onClick={() => setIsChatOpen(true)}
-            className="lg:hidden fixed bottom-6 right-6 z-40 w-14 h-14 bg-indigo-600 rounded-full shadow-lg shadow-indigo-300 flex items-center justify-center text-white hover:bg-indigo-700 transition-transform active:scale-95"
-            aria-label="Open Chat"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-7 h-7">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-            </svg>
-            {/* Unread indicator dot */}
-            {(unreadSenseiMsg || (isWaitingForCorrection && isSenseiThinking)) && (
-                <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 border-2 border-white rounded-full animate-pulse"></span>
-            )}
-          </button>
-      )}
-
-      {/* Mobile Modal Overlay */}
-      {isChatOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-              {/* Tap backdrop to close */}
-              <div className="absolute inset-0" onClick={() => setIsChatOpen(false)}></div>
-              
-              <div className="relative w-full h-[85vh] sm:h-[600px] sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl animate-in slide-in-from-bottom-10 duration-300 flex flex-col">
-                  <SenseiChat 
-                      messages={messages}
-                      loading={isSenseiThinking}
-                      onSendMessage={handleSendMessage}
-                      senseiModel={senseiModel}
-                      onModelChange={setSenseiModel}
-                      className="h-full border-none rounded-none shadow-none"
-                      onClose={() => setIsChatOpen(false)}
-                      actions={chatActions}
-                      isActive={isWaitingForCorrection}
-                  />
-              </div>
-          </div>
-      )}
+      <MobileChatWidget 
+        isChatOpen={isChatOpen}
+        setIsChatOpen={setIsChatOpen}
+        unreadMsg={unreadSenseiMsg}
+        previewDismissed={previewDismissed}
+        onDismissPreview={handleDismissPreview}
+        isSenseiThinking={isSenseiThinking}
+        isWaitingForCorrection={isWaitingForCorrection}
+        messages={messages}
+        onSendMessage={onSendMessageWrapper}
+        senseiModel={senseiModel}
+        onModelChange={setSenseiModel}
+        chatActions={chatActions}
+      />
       
       <GameOverModal 
           isOpen={showGameOverModal} 
