@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from '../types';
 
@@ -50,10 +51,10 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
       <div className="bg-indigo-600 p-3 sm:p-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-indigo-100 flex items-center justify-center text-xl sm:text-2xl border-2 border-white">
-            🐼
+            🤖
             </div>
             <div>
-            <h2 className="text-white font-bold text-base sm:text-lg leading-tight">Panda Sensei</h2>
+            <h2 className="text-white font-bold text-base sm:text-lg leading-tight">GoBot</h2>
             <p className="text-indigo-200 text-[10px] sm:text-xs">AI Tutor</p>
             </div>
         </div>

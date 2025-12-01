@@ -1,3 +1,5 @@
+
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat } from './components/SenseiChat';
@@ -37,7 +39,7 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     sender: 'sensei',
-    text: "Welcome! I'm Panda Sensei. Let's play Go! Ask me anything about the game.",
+    text: "Welcome! I'm GoBot. Let's play Go! Ask me anything about the game.",
     moveNumber: 0
   }]);
 
@@ -536,7 +538,7 @@ export default function App() {
                   className="p-4 pr-8 cursor-pointer hover:bg-slate-50 rounded-2xl rounded-br-sm"
               >
                   <div className="flex items-start gap-3">
-                      <div className="text-2xl shrink-0">🐼</div>
+                      <div className="text-2xl shrink-0">🤖</div>
                       <div className="text-sm text-slate-700 line-clamp-2">
                           {unreadSenseiMsg}
                       </div>

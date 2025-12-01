@@ -1,11 +1,12 @@
 
+
 # GoCratic - Socratic Go Tutor
 
-GoCratic is a web-based Go (Baduk/Weiqi) learning platform designed for children and beginners. Unlike traditional engines that simply tell you the best move, GoCratic features **Panda Sensei**, an AI tutor powered by Google Gemini that uses the Socratic method to guide players toward finding the solution themselves.
+GoCratic is a web-based Go (Baduk/Weiqi) learning platform designed for children and beginners. Unlike traditional engines that simply tell you the best move, GoCratic features **GoBot**, an AI tutor powered by Google Gemini that uses the Socratic method to guide players toward finding the solution themselves.
 
 ## Features
 
-### 🐼 Socratic AI Tutor (Panda Sensei)
+### 🤖 Socratic AI Tutor (GoBot)
 *   **3-Level Hint System**:
     1.  **Guiding Question**: Highlights key areas (e.g., opponent's last move) and asks a question to prompt thinking.
     2.  **Options Analysis**: Suggests 2-3 plausible moves and explains the pros and cons of each.
@@ -48,7 +49,7 @@ The application is built as a Single Page Application (SPA) using React.
 
 ### Services
 *   **`gameLogic.ts`**: Pure TypeScript implementation of Go rules (liberties, captures, suicide checks).
-*   **`aiService.ts`**: Interface for the Google Gemini API (`@google/genai`) used by Panda Sensei.
+*   **`aiService.ts`**: Interface for the Google Gemini API (`@google/genai`) used by GoBot.
 *   **`geminiEngine.ts`**: Interface for using Gemini as a competitive Go opponent.
 *   **`simpleAi.ts`**: A custom Monte Carlo Tree Search implementation in pure JavaScript for offline play.
 
@@ -74,7 +75,7 @@ The application is built as a Single Page Application (SPA) using React.
     ```
 
 3.  **Configure API Key**
-    To enable the Socratic AI features (Panda Sensei) and Gemini Opponents, you need a **Google Gemini API Key**.
+    To enable the Socratic AI features (GoBot) and Gemini Opponents, you need a **Google Gemini API Key**.
     1.  Get a free key from [Google AI Studio](https://aistudio.google.com/).
     2.  Create a `.env` file in the root directory.
     3.  Add the key:

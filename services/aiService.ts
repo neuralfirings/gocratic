@@ -8,7 +8,7 @@ import { toGtpCoordinate, fromGtpCoordinate } from "./gtpUtils";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
 const SYSTEM_INSTRUCTION = `
-You are "Panda Sensei", a kind, wise, and patient Go (Baduk/Weiqi) teacher for children.
+You are "GoBot", a kind, wise, and patient Go (Baduk/Weiqi) teacher for children.
 
 GOAL:
 Teach the user through the Socratic method. 
@@ -94,7 +94,7 @@ export const getSenseiResponse = async (
       // 1. Add Chat Messages that happened at this state
       const chatsAtThisTurn = history.filter(m => m.moveNumber === t);
       chatsAtThisTurn.forEach(msg => {
-          const prefix = msg.sender === 'user' ? 'Student' : 'Sensei';
+          const prefix = msg.sender === 'user' ? 'Student' : 'GoBot';
           interleavedHistory += `    ${prefix}: ${msg.text}\n`;
       });
 
@@ -152,7 +152,7 @@ export const getSenseiResponse = async (
   // --- LOGGING REQUEST ---
   // Only log if not in production (Cloud Run)
   if (!window.location.hostname.includes('run.app')) {
-    console.log("🐼 [Sensei] FULL API PAYLOAD:", requestPayload);
+    console.log("🤖 [GoBot] FULL API PAYLOAD:", requestPayload);
   }
 
   try {
@@ -162,7 +162,7 @@ export const getSenseiResponse = async (
     
     // --- LOGGING RESPONSE ---
     if (!window.location.hostname.includes('run.app')) {
-      console.log("🐼 [Sensei] Raw Response:", responseText);
+      console.log("🤖 [GoBot] Raw Response:", responseText);
     }
 
     // Calculate Cost

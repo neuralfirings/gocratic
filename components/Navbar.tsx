@@ -1,4 +1,5 @@
 
+
 import React, { useRef } from 'react';
 import { BoardState } from '../types';
 import { toGtpCoordinate } from '../services/gtpUtils';
@@ -48,7 +49,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm z-20">
          <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-                <div className="text-3xl">🐼</div>
+                <div className="text-3xl">🤖</div>
                 <h1 className="text-xl font-bold tracking-tight text-slate-800">GoCratic</h1>
             </div>
             
