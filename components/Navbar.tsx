@@ -52,7 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
          <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
                 <div className="text-3xl">🤖</div>
-                <h1 className="text-xl font-bold tracking-tight text-slate-800">GoCratic</h1>
+                <h1 className="text-xl font-bold tracking-tight text-slate-800">GoBot</h1>
             </div>
             
             <div className="flex items-center gap-2">
