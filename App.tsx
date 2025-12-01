@@ -55,6 +55,7 @@ export default function App() {
   // Mobile Chat State
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadSenseiMsg, setUnreadSenseiMsg] = useState<string | null>(null);
+  const [previewDismissed, setPreviewDismissed] = useState(false);
 
   const [activeMarkers, setActiveMarkers] = useState<Marker[]>([]);
   
@@ -131,6 +132,7 @@ export default function App() {
               lastNotifiedMsgIdRef.current = lastMsg.id;
               if (!isChatOpen) {
                   setUnreadSenseiMsg(lastMsg.text);
+                  setPreviewDismissed(false); // Reset dismissal on new message
               }
           }
       }
@@ -323,10 +325,8 @@ export default function App() {
         shouldBlockAi = true;
         setLastMoveQuestionable(true);
         setIsWaitingForCorrection(true);
-        setIsChatOpen(true); // Open chat on mobile to show the feedback immediately
+        setPreviewDismissed(false); // Ensure the preview bubble shows up to indicate thinking/advice
         
-        // Removed automatic canned response here to let the AI thought process take over
-
         // Abort previous feedback request if any
         if (feedbackAbortController.current) feedbackAbortController.current.abort();
         const controller = new AbortController();
@@ -393,6 +393,8 @@ export default function App() {
         setIsWaitingForCorrection(false);
         if (feedbackAbortController.current) feedbackAbortController.current.abort();
         setIsSenseiThinking(false);
+        setUnreadSenseiMsg(null);
+        setPreviewDismissed(true);
   };
 
   const handleSaveGame = () => {
@@ -485,6 +487,7 @@ export default function App() {
       }
       setIsSenseiThinking(false);
       setIsWaitingForCorrection(false); // Reset waiting state on undo
+      setUnreadSenseiMsg(null); // Clear bubble
 
       undo();
       setEngineStatus('READY');
@@ -503,6 +506,8 @@ export default function App() {
       setIsSenseiThinking(false);
       
       setIsWaitingForCorrection(false);
+      setUnreadSenseiMsg(null); // Clear bubble
+
       // Trigger the AI move that was blocked
       if (board.turn === 'WHITE') {
           triggerAiMove(board);
@@ -568,6 +573,8 @@ export default function App() {
           variant: 'primary' 
       }
   ] : [];
+
+  const shouldShowBubble = !isChatOpen && !previewDismissed && (unreadSenseiMsg || (isWaitingForCorrection && isSenseiThinking));
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
@@ -673,13 +680,14 @@ export default function App() {
       {/* --- MOBILE CHAT WIDGETS --- */}
 
       {/* Floating Notification Bubble */}
-      {unreadSenseiMsg && !isChatOpen && (
+      {shouldShowBubble && (
           <div 
             className="lg:hidden fixed bottom-24 right-4 z-40 max-w-[280px] bg-white rounded-2xl rounded-br-sm shadow-xl border border-indigo-100 animate-in slide-in-from-bottom-4 duration-300 transition-colors"
           >
               <button 
                   onClick={(e) => {
                       e.stopPropagation();
+                      setPreviewDismissed(true);
                       setUnreadSenseiMsg(null);
                   }}
                   className="absolute top-2 right-2 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors z-50"
@@ -692,13 +700,22 @@ export default function App() {
               
               <div 
                   onClick={() => setIsChatOpen(true)}
-                  className="p-4 pr-8 cursor-pointer hover:bg-slate-50 rounded-2xl rounded-br-sm"
+                  className="p-4 pr-8 cursor-pointer hover:bg-slate-50 rounded-2xl rounded-br-sm min-h-[3rem] flex items-center"
               >
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3 w-full">
                       <div className="text-2xl shrink-0">🤖</div>
-                      <div className="text-sm text-slate-700 line-clamp-2">
-                          {unreadSenseiMsg}
-                      </div>
+                      
+                      {isWaitingForCorrection && isSenseiThinking ? (
+                         <div className="flex space-x-1 py-1">
+                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                         </div>
+                      ) : (
+                         <div className="text-sm text-slate-700 line-clamp-2">
+                             {unreadSenseiMsg}
+                         </div>
+                      )}
                   </div>
               </div>
           </div>
@@ -715,8 +732,8 @@ export default function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
             </svg>
             {/* Unread indicator dot */}
-            {unreadSenseiMsg && (
-                <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 border-2 border-white rounded-full"></span>
+            {(unreadSenseiMsg || (isWaitingForCorrection && isSenseiThinking)) && (
+                <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 border-2 border-white rounded-full animate-pulse"></span>
             )}
           </button>
       )}

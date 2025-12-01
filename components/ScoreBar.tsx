@@ -22,13 +22,13 @@ export const ScoreBar: React.FC<ScoreBarProps> = ({ board, gameResult }) => {
                     </span>
                 )}
             </div>
-            <div className="gap-4 flex">
+            <div className="gap-2 flex">
                 <div className="font-bold text-slate-500">
-                    Black captured {board.captures.BLACK} pieces
+                    Black captured {board.captures.BLACK} stones
                 </div>
 
                 <div className="font-bold text-slate-500">
-                    White captured {board.captures.WHITE} pieces
+                    White captured {board.captures.WHITE} stones
                 </div>
             </div>
 

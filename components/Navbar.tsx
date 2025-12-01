@@ -1,5 +1,4 @@
 
-
 import React, { useRef } from 'react';
 import { BoardState } from '../types';
 import { toGtpCoordinate } from '../services/gtpUtils';
@@ -45,6 +44,9 @@ export const Navbar: React.FC<NavbarProps> = ({
     onCopyGnu("Copied game array to clipboard!");
   };
 
+  // Simple check for development environment (localhost) to hide debug tools in production
+  const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   return (
     <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm z-20">
          <div className="flex items-center gap-4">
@@ -68,26 +70,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                         : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                 >
-                    {confirmationPending === 'RESET' ? 'Confirm Reset?' : 'New Game'}
+                    {confirmationPending === 'RESET' ? 'Reset?' : 'New'}
                 </button>
                 <button 
                     onClick={onSave} 
                     className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 >
-                    Save SGF
+                    Save
                 </button>
                 <button 
                     onClick={handleLoadGameTrigger} 
                     className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 >
-                    Load SGF
+                    Load
                 </button>
-                <button 
-                    onClick={handleCopyGnuArray} 
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                >
-                    Copy GNUGo
-                </button>
+                
+                {isDev && (
+                    <button 
+                        onClick={handleCopyGnuArray} 
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                    >
+                        GNU
+                    </button>
+                )}
+                
                 <input 
                     type="file" 
                     ref={fileInputRef} 

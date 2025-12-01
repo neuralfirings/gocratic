@@ -75,12 +75,12 @@ export const GameControls: React.FC<GameControlsProps> = ({
                             <option value="gnugo_2">GNU Go Lvl 2</option>
                             <option value="gnugo_3">GNU Go Lvl 3</option>
                             <option value="gnugo_4">GNU Go Lvl 4</option>
-                            <option value="gnugo_5">GNU Go Lvl 5 (Mid)</option>
+                            <option value="gnugo_5">GNU Go Lvl 5</option>
                             <option value="gnugo_6">GNU Go Lvl 6</option>
                             <option value="gnugo_7">GNU Go Lvl 7</option>
                             <option value="gnugo_8">GNU Go Lvl 8</option>
                             <option value="gnugo_9">GNU Go Lvl 9</option>
-                            <option value="gnugo_10">GNU Go Lvl 10 (High)</option>
+                            <option value="gnugo_10">GNU Go Lvl 10</option>
                         </optgroup>
                     </select>
 
@@ -118,7 +118,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
                 <div className="flex items-center gap-2">
                     <button 
                         onClick={onToggleBestMoves} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold border border-slate-300">
-                        {showBestMoves ? 'hints' : 'hints'}
+                        {showBestMoves ? 'Hints' : 'Hints'}
                     </button>
                     
                     <button 
