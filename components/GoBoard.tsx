@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { BoardState, Coordinate, Marker, StoneColor } from '../types';
 import { StoneComponent } from './StoneComponent';
@@ -10,6 +9,8 @@ interface GoBoardProps {
   interactive: boolean;
   markers?: Marker[];
   ghostColor?: StoneColor | 'ERASER';
+  isWaitingForCorrection?: boolean;
+  onContinue?: () => void;
 }
 
 export const GoBoard: React.FC<GoBoardProps> = ({ 
@@ -17,7 +18,9 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   onPlay, 
   interactive, 
   markers = [], 
-  ghostColor = 'BLACK' 
+  ghostColor = 'BLACK',
+  isWaitingForCorrection = false,
+  onContinue
 }) => {
   const { size, stones, lastMove } = board;
   const [hoverCoord, setHoverCoord] = useState<Coordinate | null>(null);
@@ -284,6 +287,11 @@ export const GoBoard: React.FC<GoBoardProps> = ({
                 <div className="absolute inset-0 z-30 pointer-events-none">
                     {renderCells()}
                 </div>
+
+                {/* Darkening Overlay (No Blur) */}
+                {isWaitingForCorrection && (
+                    <div className="absolute inset-0 z-40 bg-black/20 pointer-events-auto" />
+                )}
 
             </div>
         </div>

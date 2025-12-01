@@ -1,7 +1,7 @@
 
 
 import { GoogleGenAI } from "@google/genai";
-import { BoardState, ChatMessage, Marker, AnalysisMove } from "../types";
+import { BoardState, ChatMessage, Marker, AnalysisMove, Coordinate } from "../types";
 import { boardToString } from "./gameLogic";
 import { toGtpCoordinate, fromGtpCoordinate } from "./gtpUtils";
 
@@ -219,4 +219,66 @@ export const getSenseiResponse = async (
     console.error("AI Error", error);
     return { text: "My connection to the cloud is a bit fuzzy right now. ☁️", cost: 0 };
   }
+};
+
+
+const BAD_MOVE_SYSTEM_INSTRUCTION = `
+You are "GoBot", a Go teacher.
+The student has just played a move that is likely suboptimal.
+Your goal is to gently guide them to reconsider without giving the answer away.
+Be Socratic. Ask a question about the board state that makes them realize why their move might not be best.
+Keep it VERY brief (1-2 sentences).
+`;
+
+export const getBadMoveFeedback = async (
+  board: BoardState,
+  playedMove: Coordinate,
+  hints: AnalysisMove[],
+  modelName: string = "gemini-2.5-flash"
+): Promise<{ text: string, cost: number }> => {
+    
+    if (!process.env.API_KEY || hints.length === 0) return { text: "", cost: 0 };
+
+    const boardAscii = boardToString(board);
+    const playedGtp = toGtpCoordinate(playedMove, board.size);
+    const hintsGtp = hints.slice(0, 3).map(h => toGtpCoordinate(h.coordinate, board.size)).join(", ");
+
+    const prompt = `
+      [BOARD STATE BEFORE MOVE]
+      ${boardAscii}
+
+      The student just played at: ${playedGtp}
+      
+      The engine suggests these are better moves: ${hintsGtp}
+
+      Explain conceptually why the student's move (${playedGtp}) might be inferior to the suggested moves.
+      Do not mention the coordinates of the better moves explicitly. 
+      Focus on concepts like "connection", "cutting", "territory", "liberties".
+      Ask a guiding question.
+    `;
+
+    const requestPayload = {
+      model: modelName,
+      contents: prompt,
+      config: {
+        systemInstruction: BAD_MOVE_SYSTEM_INSTRUCTION,
+        temperature: 0.5,
+      }
+    };
+
+    try {
+        const response = await ai.models.generateContent(requestPayload);
+        const responseText = response.text || "";
+
+        // Simple cost est
+        const inputTokens = (prompt.length + BAD_MOVE_SYSTEM_INSTRUCTION.length) / 4;
+        const outputTokens = responseText.length / 4;
+        const estimatedCost = (inputTokens / 1000000 * 0.075) + (outputTokens / 1000000 * 0.30);
+
+        return { text: responseText, cost: estimatedCost };
+
+    } catch (error) {
+        console.error("Bad Move Feedback Error", error);
+        return { text: "", cost: 0 };
+    }
 };

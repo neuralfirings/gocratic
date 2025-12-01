@@ -1,7 +1,11 @@
-
-
 import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from '../types';
+
+export interface ChatAction {
+  label: string;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary' | 'danger';
+}
 
 interface SenseiChatProps {
   messages: ChatMessage[];
@@ -11,6 +15,8 @@ interface SenseiChatProps {
   onModelChange: (model: string) => void;
   className?: string; // Allow external styling
   onClose?: () => void; // Optional close handler for mobile modal
+  actions?: ChatAction[]; // New prop for contextual buttons
+  isActive?: boolean; // New prop to highlight the chat window
 }
 
 export const SenseiChat: React.FC<SenseiChatProps> = ({ 
@@ -20,7 +26,9 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
   senseiModel,
   onModelChange,
   className = "",
-  onClose
+  onClose,
+  actions = [],
+  isActive = false
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
@@ -29,7 +37,7 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, loading, actions]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,17 +53,26 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
     }
   };
 
+  // Dynamic classes for the container
+  const containerClasses = `flex flex-col h-full w-full bg-white rounded-xl overflow-hidden transition-all duration-300 ${className} ${
+    isActive 
+      ? "ring-4 ring-amber-300 border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.3)]" 
+      : "shadow-xl border border-slate-200"
+  }`;
+
   return (
-    <div className={`flex flex-col h-full w-full bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden ${className}`}>
+    <div className={containerClasses}>
       {/* Header */}
-      <div className="bg-indigo-600 p-3 sm:p-4 flex items-center justify-between shrink-0">
+      <div className={`p-3 sm:p-4 flex items-center justify-between shrink-0 transition-colors duration-300 ${isActive ? 'bg-amber-500' : 'bg-indigo-600'}`}>
         <div className="flex items-center gap-3">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-indigo-100 flex items-center justify-center text-xl sm:text-2xl border-2 border-white">
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xl sm:text-2xl border-2 border-white ${isActive ? 'bg-amber-100' : 'bg-indigo-100'}`}>
             🤖
             </div>
             <div>
             <h2 className="text-white font-bold text-base sm:text-lg leading-tight">GoBot</h2>
-            <p className="text-indigo-200 text-[10px] sm:text-xs">AI Tutor</p>
+            <p className={`text-[10px] sm:text-xs ${isActive ? 'text-amber-100 font-bold animate-pulse' : 'text-indigo-200'}`}>
+                {isActive ? "Needs your attention!" : "AI Tutor"}
+            </p>
             </div>
         </div>
         
@@ -64,7 +81,11 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
             <select 
                 value={senseiModel}
                 onChange={(e) => onModelChange(e.target.value)}
-                className="text-xs bg-indigo-700 text-white border border-indigo-500 rounded px-2 py-1 outline-none hover:bg-indigo-600 focus:ring-1 focus:ring-indigo-300 transition max-w-[100px] sm:max-w-none"
+                className={`text-xs text-white border rounded px-2 py-1 outline-none focus:ring-1 transition max-w-[100px] sm:max-w-none ${
+                    isActive 
+                    ? 'bg-amber-600 border-amber-400 focus:ring-amber-200 hover:bg-amber-50' 
+                    : 'bg-indigo-700 border-indigo-500 focus:ring-indigo-300 hover:bg-indigo-600'
+                }`}
             >
                 <option value="gemini-flash-lite-latest">2.0 Flash Lite</option>
                 <option value="gemini-2.5-flash">2.5 Flash</option>
@@ -75,7 +96,9 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
             {onClose && (
                 <button 
                     onClick={onClose}
-                    className="lg:hidden w-8 h-8 flex items-center justify-center bg-indigo-700 hover:bg-indigo-800 text-white rounded-full transition-colors"
+                    className={`lg:hidden w-8 h-8 flex items-center justify-center text-white rounded-full transition-colors ${
+                        isActive ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-700 hover:bg-indigo-800'
+                    }`}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
                         <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -103,7 +126,9 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
                 max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-sm
                 ${msg.sender === 'user' 
                   ? 'bg-indigo-500 text-white rounded-br-none' 
-                  : 'bg-white text-slate-700 border border-slate-200 rounded-bl-none'}
+                  : isActive 
+                    ? 'bg-amber-50 text-slate-800 border-l-4 border-amber-400 rounded-bl-none shadow-md'
+                    : 'bg-white text-slate-700 border border-slate-200 rounded-bl-none'}
               `}
             >
               {msg.text}
@@ -112,37 +137,62 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-white p-3 rounded-2xl rounded-bl-none shadow-sm border border-slate-200">
+            <div className={`p-3 rounded-2xl rounded-bl-none shadow-sm border ${isActive ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
               <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className={`w-2 h-2 rounded-full animate-bounce ${isActive ? 'bg-amber-400' : 'bg-slate-400'}`} style={{ animationDelay: '0ms' }} />
+                <div className={`w-2 h-2 rounded-full animate-bounce ${isActive ? 'bg-amber-400' : 'bg-slate-400'}`} style={{ animationDelay: '150ms' }} />
+                <div className={`w-2 h-2 rounded-full animate-bounce ${isActive ? 'bg-amber-400' : 'bg-slate-400'}`} style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Input Area */}
+      {/* Input Area / Action Area */}
       <div className="bg-white border-t border-slate-100 shrink-0 pb-safe">
         
-        {/* Quick Actions */}
-        <div className="px-3 pt-3 flex gap-2 overflow-x-auto no-scrollbar">
-          <button 
-            onClick={() => handleQuickAction("Give me a hint")}
-            disabled={loading}
-            className="flex-shrink-0 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full transition-colors border border-indigo-200 disabled:opacity-50"
-          >
-            💡 Give me a hint
-          </button>
-          <button 
-            onClick={() => handleQuickAction("Explain your last move")}
-            disabled={loading}
-            className="flex-shrink-0 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold rounded-full transition-colors border border-amber-200 disabled:opacity-50"
-          >
-            🤔 Explain last move
-          </button>
-        </div>
+        {/* Contextual Actions (Top priority) */}
+        {actions && actions.length > 0 && (
+          <div className="px-4 pt-4 pb-2 flex flex-wrap gap-2 justify-center bg-indigo-50/50 animate-in slide-in-from-bottom-2 fade-in">
+             {actions.map((action, idx) => (
+                <button 
+                  key={idx}
+                  onClick={action.onClick}
+                  // Removed disabled={loading} here to allow interruption (Undo/Continue) while thinking
+                  className={`
+                    px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all active:scale-95
+                    ${action.variant === 'secondary' 
+                      ? 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50' 
+                      : action.variant === 'danger'
+                      ? 'bg-white text-red-600 border border-red-200 hover:bg-red-50'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-700 border border-transparent'}
+                  `}
+                >
+                  {action.label}
+                </button>
+             ))}
+          </div>
+        )}
+
+        {/* Quick Actions (Only show if no contextual actions preventing play) */}
+        {(!actions || actions.length === 0) && (
+          <div className="px-3 pt-3 flex gap-2 overflow-x-auto no-scrollbar">
+            <button 
+              onClick={() => handleQuickAction("Give me a hint")}
+              disabled={loading}
+              className="flex-shrink-0 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full transition-colors border border-indigo-200 disabled:opacity-50"
+            >
+              💡 Give me a hint
+            </button>
+            <button 
+              onClick={() => handleQuickAction("Explain your last move")}
+              disabled={loading}
+              className="flex-shrink-0 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold rounded-full transition-colors border border-amber-200 disabled:opacity-50"
+            >
+              🤔 Explain last move
+            </button>
+          </div>
+        )}
 
         <div className="p-3">
           <form onSubmit={handleSubmit} className="flex gap-2">
@@ -173,4 +223,4 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
       </div>
     </div>
   );
-};
+}

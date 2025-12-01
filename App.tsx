@@ -1,8 +1,7 @@
 
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
-import { SenseiChat } from './components/SenseiChat';
+import { SenseiChat, ChatAction } from './components/SenseiChat';
 import { GameOverModal } from './components/GameOverModal';
 import { Navbar } from './components/Navbar';
 import { GameControls } from './components/GameControls';
@@ -14,9 +13,19 @@ import { useGoGame } from './hooks/useGoGame';
 import { generateMove, getLevelSimulations } from './services/simpleAi';
 import { getGeminiMove } from './services/geminiEngine';
 import { fetchGnuGoMove, fetchGnuGoHints } from './services/gnugoService';
-import { getSenseiResponse } from './services/aiService';
+import { getSenseiResponse, getBadMoveFeedback } from './services/aiService';
 import { generateSgf, parseSgf } from './services/sgfService';
 import { BoardState, Coordinate, ChatMessage, Marker, EngineStatus, StoneColor, AnalysisMove } from './types';
+
+const GOOD_MOVE_PHRASES = [
+    "That's a better choice!",
+    "Much stronger move.",
+    "Good correction.",
+    "That looks solid.",
+    "Excellent choice."
+];
+
+const getRandom = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
 
 export default function App() {
   const [gameMode, setGameMode] = useState<'FREE' | 'PUZZLE'>('FREE');
@@ -57,6 +66,11 @@ export default function App() {
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('READY');
   const abortControllerRef = useRef<AbortController | null>(null);
   
+  // Feedback State
+  const feedbackAbortController = useRef<AbortController | null>(null);
+  const [lastMoveQuestionable, setLastMoveQuestionable] = useState(false);
+  const [isWaitingForCorrection, setIsWaitingForCorrection] = useState(false);
+
   // Opponent Config
   const [opponentModel, setOpponentModel] = useState<string | number>("gnugo_1"); 
 
@@ -107,9 +121,6 @@ export default function App() {
   }, [board.history.length, board.gameOver, board.turn, board]);
 
   // Mobile Notification Logic
-  // Use a ref to track which message ID triggered the last notification
-  // This prevents the notification from reappearing when 'isChatOpen' toggles false
-  // but the message list hasn't effectively changed.
   const lastNotifiedMsgIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -290,6 +301,9 @@ export default function App() {
   };
 
   const handlePlay = useCallback(async (c: Coordinate) => {
+    // Capture hints before move (hints are for the current state)
+    const currentHints = [...analysisData];
+    
     // Attempt move
     const result = playMove(c);
     
@@ -298,17 +312,70 @@ export default function App() {
         return;
     }
 
+    // CHECK FOR HINTS AND FEEDBACK
+    const isInHints = currentHints.some(h => h.coordinate.x === c.x && h.coordinate.y === c.y);
+    let shouldBlockAi = false;
+
+    // Only trigger feedback if we have enough confidence (at least 3 suggested moves)
+    // AND it is not the first move of the game (allow creative opening)
+    if (currentHints.length >= 3 && !isInHints && board.history.length > 0) {
+        // BAD MOVE FLOW
+        shouldBlockAi = true;
+        setLastMoveQuestionable(true);
+        setIsWaitingForCorrection(true);
+        setIsChatOpen(true); // Open chat on mobile to show the feedback immediately
+        
+        // Removed automatic canned response here to let the AI thought process take over
+
+        // Abort previous feedback request if any
+        if (feedbackAbortController.current) feedbackAbortController.current.abort();
+        const controller = new AbortController();
+        feedbackAbortController.current = controller;
+
+        setIsSenseiThinking(true);
+        try {
+            // We pass the OLD board (board) because that's what the hints are based on.
+            const feedback = await getBadMoveFeedback(board, c, currentHints);
+            if (!controller.signal.aborted) {
+                if (feedback.text) {
+                    addMessage('sensei', feedback.text);
+                    if (feedback.cost > 0) setSessionCost(prev => prev + feedback.cost);
+                }
+            }
+        } catch (e) {
+            console.error("Feedback error", e);
+        } finally {
+            if (feedbackAbortController.current === controller) {
+                setIsSenseiThinking(false);
+            }
+        }
+
+    } else if (isInHints) {
+        // GOOD MOVE FLOW
+        if (lastMoveQuestionable) {
+            addMessage('sensei', getRandom(GOOD_MOVE_PHRASES));
+            setLastMoveQuestionable(false);
+        }
+        // Cancel any pending "Bad Move" feedback if they corrected themselves quickly
+        if (feedbackAbortController.current) {
+            feedbackAbortController.current.abort();
+            feedbackAbortController.current = null;
+        }
+        setIsSenseiThinking(false);
+        setIsWaitingForCorrection(false);
+    }
+
     const nextState = result.newState;
 
-    // AI Turn Trigger
-    if (gamePhase === 'PLAY' && gameMode === 'FREE' && nextState && !nextState.gameOver) {
+    // AI Turn Trigger - ONLY if not blocking for correction
+    if (gamePhase === 'PLAY' && gameMode === 'FREE' && nextState && !nextState.gameOver && !shouldBlockAi) {
         setTimeout(() => {
             if (nextState.turn === 'WHITE') {
                 triggerAiMove(nextState);
             }
         }, 50);
     }
-  }, [playMove, gameMode, gamePhase, triggerAiMove]);
+  }, [playMove, gameMode, gamePhase, triggerAiMove, analysisData, board, lastMoveQuestionable]);
 
   const handleReset = () => {
         reset();
@@ -322,6 +389,10 @@ export default function App() {
         setAnalysisData([]);
         setShowBestMoves(false);
         setActiveMarkers([]);
+        setLastMoveQuestionable(false);
+        setIsWaitingForCorrection(false);
+        if (feedbackAbortController.current) feedbackAbortController.current.abort();
+        setIsSenseiThinking(false);
   };
 
   const handleSaveGame = () => {
@@ -351,7 +422,22 @@ export default function App() {
                   let newBoard = createBoard(result.size);
                   const newHistoryStack: BoardState[] = [];
 
+                  // RESET BLOCKING STATES
+                  setLastMoveQuestionable(false);
+                  setIsWaitingForCorrection(false);
+                  if (feedbackAbortController.current) {
+                      feedbackAbortController.current.abort();
+                      feedbackAbortController.current = null;
+                  }
+                  setIsSenseiThinking(false);
+                  setGamePhase('PLAY');
+
                   for (const move of result.moves) {
+                      // Synchronize turn to SGF move color to avoid sync issues
+                      if (newBoard.turn !== move.color) {
+                           newBoard = { ...newBoard, turn: move.color };
+                      }
+
                       if (move.coordinate.x === -1) {
                           const nextState: BoardState = {
                               ...newBoard,
@@ -392,12 +478,35 @@ export default function App() {
   };
 
   const handleUndo = () => {
+      // Abort feedback if any to prevent delayed scolding after undo
+      if (feedbackAbortController.current) {
+          feedbackAbortController.current.abort();
+          feedbackAbortController.current = null;
+      }
+      setIsSenseiThinking(false);
+      setIsWaitingForCorrection(false); // Reset waiting state on undo
+
       undo();
       setEngineStatus('READY');
       if (abortControllerRef.current) abortControllerRef.current.abort();
       setAnalysisData([]); // Clear old analysis
       setShowBestMoves(false); // Hide markers
       setActiveMarkers([]);
+  };
+
+  const handleContinueAfterBadMove = () => {
+      // Cancel pending feedback to stop loading indicator
+      if (feedbackAbortController.current) {
+          feedbackAbortController.current.abort();
+          feedbackAbortController.current = null;
+      }
+      setIsSenseiThinking(false);
+      
+      setIsWaitingForCorrection(false);
+      // Trigger the AI move that was blocked
+      if (board.turn === 'WHITE') {
+          triggerAiMove(board);
+      }
   };
 
   const handleSendMessage = async (text: string) => {
@@ -446,6 +555,20 @@ export default function App() {
     return baseMarkers;
   };
 
+  // Define chat actions
+  const chatActions: ChatAction[] = isWaitingForCorrection ? [
+      { 
+          label: "Try Again (Undo)", 
+          onClick: handleUndo, 
+          variant: 'secondary' 
+      },
+      { 
+          label: "Ask White to Continue", 
+          onClick: handleContinueAfterBadMove, 
+          variant: 'primary' 
+      }
+  ] : [];
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
       
@@ -465,36 +588,68 @@ export default function App() {
          
          {/* Left: Game Area (Full width on Mobile) */}
          <div className="flex-1 overflow-y-auto p-4 lg:p-8 flex flex-col items-center gap-4">
-            <GameControls 
-                 opponentModel={opponentModel}
-                 setOpponentModel={setOpponentModel}
-                 gamePhase={gamePhase}
-                 setGamePhase={setGamePhase}
-                 engineStatus={engineStatus}
-                 board={board}
-                 onCancelAi={handleCancel}
-                 onForceAi={handleForceAi}
-                 onUndo={handleUndo}
-                 onRedo={redo}
-                 onPass={handleUserPass}
-                 onResign={handleUserResign}
-                 historyLength={historyStack.length}
-                 redoLength={redoStack.length}
-                 confirmationPending={confirmationPending}
-                 setConfirmationPending={setConfirmationPending}
-                 setupTool={setupTool}
-                 setSetupTool={setSetupTool}
-                 onToggleBestMoves={() => setShowBestMoves(prev => !prev)}
-                 onClearMarks={() => { setActiveMarkers([]); setShowBestMoves(false); }}
-                 showBestMoves={showBestMoves}
-             />
+             {/* REPLACEMENT: Pause Bar or Game Controls */}
+             {isWaitingForCorrection ? (
+                 <div className="w-full bg-amber-500 text-white px-4 py-3 rounded-xl shadow-sm border border-amber-600 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 min-h-[3.8rem]">
+                     <div className="flex items-center gap-3">
+                         <div className="text-xl bg-white/20 rounded-full w-9 h-9 flex items-center justify-center shrink-0">🛑</div>
+                         <div className="flex flex-col">
+                             <span className="font-bold text-sm leading-tight">Paused • Check Chat</span>
+                             <span className="text-[10px] text-amber-100 opacity-90">GoBot has some advice for you.</span>
+                         </div>
+                     </div>
+                     <div className="flex gap-2 ml-auto">
+                          <button
+                             onClick={handleUndo}
+                             className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold border border-white/20 transition-all active:scale-95 flex items-center gap-1"
+                          >
+                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                <path fillRule="evenodd" d="M7.793 2.232a.75.75 0 01-.025 1.06L3.622 7.25h10.003a5.375 5.375 0 010 10.75H10.75a.75.75 0 010-1.5h2.875a3.875 3.875 0 000-7.75H3.622l4.146 3.957a.75.75 0 01-1.036 1.085l-5.5-5.25a.75.75 0 010-1.085l5.5-5.25a.75.75 0 011.06.025z" clipRule="evenodd" />
+                             </svg>
+                             Undo
+                          </button>
+                          <button
+                             onClick={handleContinueAfterBadMove}
+                             className="px-4 py-2 bg-white text-amber-600 hover:bg-amber-50 rounded-lg text-xs font-bold shadow-sm transition-all active:scale-95"
+                          >
+                             Continue Game
+                          </button>
+                     </div>
+                 </div>
+             ) : (
+                <GameControls 
+                     opponentModel={opponentModel}
+                     setOpponentModel={setOpponentModel}
+                     gamePhase={gamePhase}
+                     setGamePhase={setGamePhase}
+                     engineStatus={engineStatus}
+                     board={board}
+                     onCancelAi={handleCancel}
+                     onForceAi={handleForceAi}
+                     onUndo={handleUndo}
+                     onRedo={redo}
+                     onPass={handleUserPass}
+                     onResign={handleUserResign}
+                     historyLength={historyStack.length}
+                     redoLength={redoStack.length}
+                     confirmationPending={confirmationPending}
+                     setConfirmationPending={setConfirmationPending}
+                     setupTool={setupTool}
+                     setSetupTool={setSetupTool}
+                     onToggleBestMoves={() => setShowBestMoves(prev => !prev)}
+                     onClearMarks={() => { setActiveMarkers([]); setShowBestMoves(false); }}
+                     showBestMoves={showBestMoves}
+                 />
+             )}
 
              <GoBoard 
                  board={board}
                  onPlay={handlePlay}
-                 interactive={gamePhase === 'SETUP' || (!board.gameOver && engineStatus !== 'THINKING')} 
+                 interactive={gamePhase === 'SETUP' || (!board.gameOver && engineStatus !== 'THINKING' && !isWaitingForCorrection)} 
                  markers={getCombinedMarkers()}
                  ghostColor={getGhostColor()}
+                 isWaitingForCorrection={isWaitingForCorrection}
+                 // onContinue is now handled in the replaced GameControls bar, so strictly not needed inside Board anymore, but removing prop is safer in GoBoard.tsx
              />
 
              <ScoreBar board={board} gameResult={gameResult} />             
@@ -509,6 +664,8 @@ export default function App() {
                  senseiModel={senseiModel}
                  onModelChange={setSenseiModel}
                  className="h-full rounded-none border-none shadow-none"
+                 actions={chatActions}
+                 isActive={isWaitingForCorrection}
              />
          </div>
       </div>
@@ -579,6 +736,8 @@ export default function App() {
                       onModelChange={setSenseiModel}
                       className="h-full border-none rounded-none shadow-none"
                       onClose={() => setIsChatOpen(false)}
+                      actions={chatActions}
+                      isActive={isWaitingForCorrection}
                   />
               </div>
           </div>

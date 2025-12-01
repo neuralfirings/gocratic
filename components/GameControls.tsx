@@ -50,7 +50,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
     showBestMoves
 }) => {
     return (
-        <div className="w-full bg-white px-4 py-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-3">
+        <div className="w-full bg-white px-4 py-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-3 min-h-[3.8rem] justify-center transition-all">
             <div className="flex flex-wrap items-center justify-between gap-3">
                 
                 {/* Left: Opponent & Mode Toggle & Thinking Status */}
