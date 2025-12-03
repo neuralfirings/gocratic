@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from '../types';
 
@@ -17,6 +18,7 @@ interface SenseiChatProps {
   onClose?: () => void; // Optional close handler for mobile modal
   actions?: ChatAction[]; // New prop for contextual buttons
   isActive?: boolean; // New prop to highlight the chat window
+  onMessageClick?: (moveNumber: number) => void; // New prop for history interaction
 }
 
 export const SenseiChat: React.FC<SenseiChatProps> = ({ 
@@ -28,7 +30,8 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
   className = "",
   onClose,
   actions = [],
-  isActive = false
+  isActive = false,
+  onMessageClick
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
@@ -119,19 +122,30 @@ export const SenseiChat: React.FC<SenseiChatProps> = ({
         {messages.map((msg) => (
           <div 
             key={msg.id} 
-            className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
           >
+            {/* Message Bubble */}
             <div 
+              onClick={() => onMessageClick && msg.moveNumber > 0 && onMessageClick(msg.moveNumber)}
               className={`
-                max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-sm
+                max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-sm relative group
                 ${msg.sender === 'user' 
                   ? 'bg-indigo-500 text-white rounded-br-none' 
                   : isActive 
                     ? 'bg-amber-50 text-slate-800 border-l-4 border-amber-400 rounded-bl-none shadow-md'
                     : 'bg-white text-slate-700 border border-slate-200 rounded-bl-none'}
+                ${onMessageClick && msg.moveNumber > 0 ? 'cursor-pointer hover:scale-[1.02] transition-transform' : ''}
               `}
             >
-              {msg.text}
+              <div className="flex flex-col gap-1">
+                  {/* Move Indicator Header */}
+                  {msg.moveNumber > 0 && (
+                      <span className={`text-[9px] font-bold uppercase tracking-wider mb-1 ${msg.sender === 'user' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                          (Move {msg.moveNumber})
+                      </span>
+                  )}
+                  <span>{msg.text}</span>
+              </div>
             </div>
           </div>
         ))}

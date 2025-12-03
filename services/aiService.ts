@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI } from "@google/genai";
 import { BoardState, ChatMessage, Marker, AnalysisMove, Coordinate } from "../types";
 import { boardToString } from "./gameLogic";
@@ -225,9 +224,14 @@ export const getSenseiResponse = async (
 const BAD_MOVE_SYSTEM_INSTRUCTION = `
 You are "GoBot", a Go teacher.
 The student has just played a move that is likely suboptimal.
-Your goal is to gently guide them to reconsider without giving the answer away.
-Be Socratic. Ask a question about the board state that makes them realize why their move might not be best.
-Keep it VERY brief (1-2 sentences).
+Your goal is to be helpful and retrospective, like a commentator or a gentle coach.
+**IMPORTANT**: The game is continuing. The opponent is about to play.
+Do NOT tell them to "Stop" or "Undo".
+
+1. Briefly mention a downside (e.g. "That leaves a cut at D4", "A bit slow").
+2. Suggest there might have been a bigger point.
+3. Keep it VERY short (1 sentence ideally).
+4. Use a friendly, "by the way" tone.
 `;
 
 export const getBadMoveFeedback = async (
@@ -251,10 +255,7 @@ export const getBadMoveFeedback = async (
       
       The engine suggests these are better moves: ${hintsGtp}
 
-      Explain conceptually why the student's move (${playedGtp}) might be inferior to the suggested moves.
-      Do not mention the coordinates of the better moves explicitly. 
-      Focus on concepts like "connection", "cutting", "territory", "liberties".
-      Ask a guiding question.
+      Provide a brief, non-intrusive comment about the move ${playedGtp} compared to the better options. 
     `;
 
     const requestPayload = {

@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { BoardState, Coordinate, Marker, StoneColor } from '../types';
 import { StoneComponent } from './StoneComponent';
-import { getColLabel, getRowLabel, toGtpCoordinate } from '../services/gtpUtils';
+import { getColLabel, getRowLabel } from '../services/gtpUtils';
 
 interface GoBoardProps {
   board: BoardState;
@@ -11,6 +12,7 @@ interface GoBoardProps {
   ghostColor?: StoneColor | 'ERASER';
   isWaitingForCorrection?: boolean;
   onContinue?: () => void;
+  highlightedMoveIndex?: number | null;
 }
 
 export const GoBoard: React.FC<GoBoardProps> = ({ 
@@ -20,33 +22,38 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   markers = [], 
   ghostColor = 'BLACK',
   isWaitingForCorrection = false,
-  onContinue
+  onContinue,
+  highlightedMoveIndex = null
 }) => {
-  const { size, stones, lastMove } = board;
+  const { size, stones, lastMove, history } = board;
   const [hoverCoord, setHoverCoord] = useState<Coordinate | null>(null);
-  
-  // The main wrapper ref
   const boardRef = useRef<HTMLDivElement>(null);
   
-  // --- DEBUG STATE ---
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  // Visual debug markers removed for production cleanliness
-  
-  // Ref to track pointer down location for distinguishing Taps from Scrolls
   const pointerDownPos = useRef<{ x: number, y: number } | null>(null);
   const activePointerId = useRef<number | null>(null);
   
-  const addLog = (msg: string) => {
-      // Keep logging but reduce noise
-      // const time = new Date().toISOString().split('T')[1].slice(0, 8); 
-      // setDebugLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 30));
-  };
+  // Calculate which stones belong to which move index for visualization
+  const stoneMoveIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    
+    // Iterate through history to map coordinate -> move index (1-based)
+    // We iterate forward so later moves overwrite earlier ones (e.g. ko, or hypothetical rules)
+    // In standard Go, capturing removes stones, but the history keeps the placement record.
+    // For visualization, we check if the CURRENT board still has a stone of that color at that spot.
+    
+    history.forEach((h, index) => {
+        const key = `${h.coordinate.x},${h.coordinate.y}`;
+        // Only map it if the stone is actually currently on the board
+        // This handles captures correctly (captured stones won't be in board.stones)
+        if (board.stones.has(key) && board.stones.get(key) === h.color) {
+             map.set(key, index + 1);
+        }
+    });
 
-  useEffect(() => {
-    // console.log(`Board Updated. Stones: ${stones.size}`);
-  }, [stones, lastMove]);
+    return map;
+  }, [stones, history, board]);
 
-  // Calculate star points (hoshi)
+
   const getStarPoints = () => {
       if (size === 9) return [[2,2], [6,2], [4,4], [2,6], [6,6]];
       if (size === 13) return [[3,3], [9,3], [6,6], [3,9], [9,9]];
@@ -60,11 +67,8 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   const getGridCoord = (e: React.PointerEvent<HTMLDivElement> | PointerEvent): Coordinate | null => {
       if (!boardRef.current) return null;
       const rect = boardRef.current.getBoundingClientRect();
-      
-      // Use clientX/Y directly
       const relativeX = e.clientX - rect.left;
       const relativeY = e.clientY - rect.top;
-
       const x = Math.floor((relativeX / rect.width) * size);
       const y = Math.floor((relativeY / rect.height) * size);
       
@@ -91,9 +95,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   };
 
   const handleBoardPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-      // Hover logic - only for mouse/pen, not touch
       if (e.pointerType === 'touch') return;
-      
       if (interactive) {
           const coord = getGridCoord(e);
           setHoverCoord(coord);
@@ -102,7 +104,6 @@ export const GoBoard: React.FC<GoBoardProps> = ({
 
   const handleBoardPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
       if (!interactive) return;
-      
       try {
         if (activePointerId.current) {
             e.currentTarget.releasePointerCapture(activePointerId.current);
@@ -110,17 +111,13 @@ export const GoBoard: React.FC<GoBoardProps> = ({
       } catch (err) { /* ignore */ }
       
       activePointerId.current = null;
-
       if (!pointerDownPos.current) return;
 
-      // Calculate distance moved
       const dx = Math.abs(e.clientX - pointerDownPos.current.x);
       const dy = Math.abs(e.clientY - pointerDownPos.current.y);
       const dist = Math.sqrt(dx*dx + dy*dy);
-
       pointerDownPos.current = null;
 
-      // Tap detection threshold (increased slightly for fat fingers)
       if (dist < 40) {
           const coord = getGridCoord(e);
           if (coord) {
@@ -141,9 +138,6 @@ export const GoBoard: React.FC<GoBoardProps> = ({
       setHoverCoord(null);
   };
 
-  const getLabel = (c: Coordinate) => toGtpCoordinate(c, size);
-
-  // Pre-calculate cells to render (Purely based on Loop 0..N)
   const renderCells = () => {
     return Array.from({ length: size * size }).map((_, i) => {
         const x = i % size;
@@ -154,12 +148,28 @@ export const GoBoard: React.FC<GoBoardProps> = ({
         const marker = markers.find(m => m.x === x && m.y === y);
         const isHovered = hoverCoord?.x === x && hoverCoord?.y === y;
 
-        // Calculate Position %
+        // Fading Logic for History Review
+        let opacity = 1;
+        let isHighlightedMove = false;
+        
+        if (highlightedMoveIndex !== null && stoneColor) {
+            const moveIdx = stoneMoveIndexMap.get(key);
+            if (moveIdx !== undefined) {
+                if (moveIdx > highlightedMoveIndex) {
+                    opacity = 0.3; // Fade future stones
+                } else if (moveIdx === highlightedMoveIndex) {
+                    isHighlightedMove = true; // Highlight specific move
+                }
+            }
+        }
+
         const style = {
             left: `${(x / size) * 100}%`,
             top: `${(y / size) * 100}%`,
             width: `${100 / size}%`,
-            height: `${100 / size}%`
+            height: `${100 / size}%`,
+            opacity: opacity,
+            transition: 'opacity 0.3s ease'
         };
 
         if (!stoneColor && !marker && !isHovered) return null;
@@ -185,6 +195,13 @@ export const GoBoard: React.FC<GoBoardProps> = ({
                     </div>
                 )}
 
+                {/* Highlight Ring for History Interaction */}
+                {isHighlightedMove && (
+                    <div className="absolute inset-0 z-0 flex items-center justify-center animate-pulse">
+                         <div className="w-full h-full rounded-full border-4 border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.9)]" />
+                    </div>
+                )}
+
                 {/* Actual Stone / Marker */}
                 {(stoneColor || marker) && (
                     <div className="absolute inset-0 w-full h-full p-[2%]">
@@ -193,6 +210,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
                             isLastMove={isLast} 
                             markerType={marker?.type}
                             label={marker?.label}
+                            markerColor={marker?.color}
                         />
                     </div>
                 )}
@@ -204,16 +222,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   return (
     <div className="flex flex-col items-center">
         <div className="relative inline-block bg-[#F2B06D] rounded-[4px] shadow-xl select-none p-1 sm:p-2 lg:p-3">
-        {/* Hover Coordinate Indicator */}
-        <div className="absolute -top-8 left-0 right-0 h-6 flex justify-center items-center pointer-events-none">
-             <span className={`
-                text-sm font-bold text-slate-600 bg-white/90 px-3 py-0.5 rounded-full shadow-sm transition-opacity duration-200
-                ${hoverCoord ? 'opacity-100' : 'opacity-0'}
-             `}>
-                 {hoverCoord ? getLabel(hoverCoord) : '...'}
-             </span>
-        </div>
-
+        
         <div className="grid grid-cols-[auto_1fr] grid-rows-[auto_1fr]">
             {/* Top Labels */}
             <div className="col-start-2 flex pb-1 touch-none">
@@ -296,12 +305,6 @@ export const GoBoard: React.FC<GoBoardProps> = ({
             </div>
         </div>
         </div>
-        
-        {/* Mobile/Compact Coordinate Footer */}
-        {/* <div className="mt-2 text-xs text-slate-400 font-mono h-4">
-             {hoverCoord ? `Cursor: ${getLabel(hoverCoord)}` : ''}
-        </div>  */}
-
     </div>
   );
 };

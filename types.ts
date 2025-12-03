@@ -42,6 +42,7 @@ export type MarkerType = 'TRIANGLE' | 'CIRCLE' | 'SQUARE' | 'X';
 export interface Marker extends Coordinate {
   type: MarkerType;
   label?: string;
+  color?: string; // Optional hex color override
 }
 
 export interface ChatMessage {

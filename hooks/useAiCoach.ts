@@ -7,16 +7,6 @@ import { generateMove, getLevelSimulations } from '../services/simpleAi';
 import { getSenseiResponse, getBadMoveFeedback } from '../services/aiService';
 import { placeStone } from '../services/gameLogic';
 
-const GOOD_MOVE_PHRASES = [
-    "That's a better choice!",
-    "Much stronger move.",
-    "Good correction.",
-    "That looks solid.",
-    "Excellent choice."
-];
-
-const getRandom = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
-
 interface AiCoachProps {
     addMessage: (sender: 'user' | 'sensei', text: string) => void;
     setPreviewDismissed: (d: boolean) => void;
@@ -28,7 +18,11 @@ export const useAiCoach = ({ addMessage, setPreviewDismissed }: AiCoachProps) =>
     const [activeMarkers, setActiveMarkers] = useState<Marker[]>([]);
     const [sessionCost, setSessionCost] = useState<number>(0);
     const [lastMoveQuestionable, setLastMoveQuestionable] = useState(false);
-    const [isWaitingForCorrection, setIsWaitingForCorrection] = useState(false);
+    
+    // Auto-Coach Feature State
+    const [autoCoachEnabled, setAutoCoachEnabled] = useState(true);
+    const [isBadMoveBannerVisible, setIsBadMoveBannerVisible] = useState(false);
+    const [mentorMessage, setMentorMessage] = useState<string | null>(null);
     
     // Refs for aborting async operations
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -53,7 +47,8 @@ export const useAiCoach = ({ addMessage, setPreviewDismissed }: AiCoachProps) =>
         setEngineStatus('READY');
         setActiveMarkers([]);
         setLastMoveQuestionable(false);
-        setIsWaitingForCorrection(false);
+        setIsBadMoveBannerVisible(false);
+        setMentorMessage(null);
         stopFeedback();
         cancelAiMove();
     }, [stopFeedback, cancelAiMove]);
@@ -196,52 +191,52 @@ export const useAiCoach = ({ addMessage, setPreviewDismissed }: AiCoachProps) =>
         }
     };
 
-    // --- BAD MOVE FEEDBACK LOGIC ---
-    const checkBadMove = async (
+    // Helper: Determine if a move is suboptimal
+    const isMoveSuboptimal = (
         boardBeforeMove: BoardState,
         playedMove: Coordinate,
         analysisData: AnalysisMove[]
-    ): Promise<boolean> => {
-        const currentHints = [...analysisData];
-        const isInHints = currentHints.some(h => h.coordinate.x === playedMove.x && h.coordinate.y === playedMove.y);
-        
-        if (currentHints.length >= 3 && !isInHints && boardBeforeMove.history.length > 0) {
-            // Bad Move Flow
-            setLastMoveQuestionable(true);
-            setIsWaitingForCorrection(true);
-            setPreviewDismissed(false); // Show bubble
-            
-            if (feedbackAbortController.current) feedbackAbortController.current.abort();
-            const controller = new AbortController();
-            feedbackAbortController.current = controller;
+    ): boolean => {
+        if (!autoCoachEnabled || analysisData.length === 0 || boardBeforeMove.history.length === 0) return false;
 
-            setIsSenseiThinking(true);
-            try {
-                const feedback = await getBadMoveFeedback(boardBeforeMove, playedMove, currentHints);
-                if (!controller.signal.aborted) {
-                    if (feedback.text) {
-                        addMessage('sensei', feedback.text);
-                        if (feedback.cost > 0) setSessionCost(prev => prev + feedback.cost);
-                    }
-                }
-            } catch (e) {
-                console.error("Feedback error", e);
-            } finally {
-                if (feedbackAbortController.current === controller) {
-                    setIsSenseiThinking(false);
-                }
+        // Check if the played move matches ANY move in the analysis data (hints)
+        const match = analysisData.find(h => h.coordinate.x === playedMove.x && h.coordinate.y === playedMove.y);
+        
+        // If the move is in the list of suggestions, it's considered good enough.
+        // If not in the list, it is considered suboptimal.
+        return !match;
+    };
+
+    // Async Feedback Generator (returns promise)
+    const generateBadMoveFeedback = async (
+        boardBeforeMove: BoardState,
+        playedMove: Coordinate,
+        analysisData: AnalysisMove[]
+    ) => {
+        if (feedbackAbortController.current) feedbackAbortController.current.abort();
+        const controller = new AbortController();
+        feedbackAbortController.current = controller;
+        
+        setMentorMessage(null); // Clear previous message while loading
+        setIsSenseiThinking(true);
+
+        try {
+            const feedback = await getBadMoveFeedback(boardBeforeMove, playedMove, analysisData);
+            
+            if (!controller.signal.aborted && feedback.text) {
+                addMessage('sensei', feedback.text);
+                setMentorMessage(feedback.text);
+                if (feedback.cost > 0) setSessionCost(prev => prev + feedback.cost);
             }
-            return true; // Blocked
-        } else if (isInHints) {
-            // Good Move Flow
-            if (lastMoveQuestionable) {
-                addMessage('sensei', getRandom(GOOD_MOVE_PHRASES));
-                setLastMoveQuestionable(false);
+            return feedback;
+        } catch (e) {
+            console.error("Feedback error", e);
+            throw e;
+        } finally {
+            if (feedbackAbortController.current === controller) {
+                setIsSenseiThinking(false);
             }
-            stopFeedback();
-            setIsWaitingForCorrection(false);
         }
-        return false;
     };
 
     return {
@@ -251,13 +246,20 @@ export const useAiCoach = ({ addMessage, setPreviewDismissed }: AiCoachProps) =>
         activeMarkers,
         setActiveMarkers,
         sessionCost,
-        isWaitingForCorrection,
-        setIsWaitingForCorrection,
+        isBadMoveBannerVisible,
+        setIsBadMoveBannerVisible,
+        autoCoachEnabled,
+        setAutoCoachEnabled,
         triggerAiMove,
         cancelAiMove,
         handleSendMessage,
-        checkBadMove,
+        isMoveSuboptimal,
+        generateBadMoveFeedback,
         resetCoach,
-        stopFeedback
+        stopFeedback,
+        setLastMoveQuestionable,
+        setPreviewDismissed,
+        mentorMessage,
+        setMentorMessage
     };
 };

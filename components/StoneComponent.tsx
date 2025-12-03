@@ -7,24 +7,26 @@ interface StoneProps {
   isLastMove?: boolean;
   markerType?: MarkerType;
   label?: string;
+  markerColor?: string; // Optional override for marker color
 }
 
-export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, markerType, label }) => {
+export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, markerType, label, markerColor }) => {
   
   // Helper to render marker shape
   const renderMarker = () => {
     if (!markerType) return null;
 
     // Contrast color: If stone is black, marker is white. If stone is white, marker is black. 
-    // If no stone (empty), marker is Red/Blue for visibility.
-    const markerColor = color === 'BLACK' ? '#ffffff' : color === 'WHITE' ? '#0f172a' : '#ef4444'; 
+    // If no stone (empty), use markerColor if provided, otherwise Red (default for warnings/threats).
+    const defaultColor = color === 'BLACK' ? '#ffffff' : color === 'WHITE' ? '#0f172a' : '#ef4444'; 
+    const finalColor = markerColor || defaultColor;
     
     // Uses inset-0 + m-auto for robust centering instead of transforms
     const commonProps = {
-      stroke: markerColor,
+      stroke: finalColor,
       strokeWidth: "2.5",
       fill: "none",
-      className: "w-[60%] h-[60%] absolute inset-0 m-auto z-20 pointer-events-none"
+      className: "w-[60%] h-[60%] absolute inset-0 m-auto z-20 pointer-events-none drop-shadow-md"
     };
 
     switch (markerType) {

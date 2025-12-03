@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat, ChatAction } from './components/SenseiChat';
@@ -60,6 +59,14 @@ export default function App() {
   const [opponentModel, setOpponentModel] = useState<string | number>("gnugo_1"); 
   const [senseiModel, setSenseiModel] = useState<string>("gemini-3-pro-preview");
   const [showBestMoves, setShowBestMoves] = useState(false);
+  const [highlightedMoveIndex, setHighlightedMoveIndex] = useState<number | null>(null);
+
+  // AI Scheduling State
+  const aiTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isAiPending, setIsAiPending] = useState(false);
+  
+  // Track unique ID for each AI turn to handle race conditions vs cancellations
+  const activeTurnIdRef = useRef<number>(0);
 
   // --- CUSTOM HOOKS ---
   const { analysisData, setAnalysisData } = useAnalysis(board);
@@ -71,20 +78,33 @@ export default function App() {
       activeMarkers,
       setActiveMarkers,
       sessionCost,
-      isWaitingForCorrection,
-      setIsWaitingForCorrection,
+      isBadMoveBannerVisible,
+      setIsBadMoveBannerVisible,
+      autoCoachEnabled,
+      setAutoCoachEnabled,
       triggerAiMove,
       cancelAiMove,
       handleSendMessage,
-      checkBadMove,
+      isMoveSuboptimal,
+      generateBadMoveFeedback,
       resetCoach,
-      stopFeedback
+      stopFeedback,
+      setLastMoveQuestionable,
+      setPreviewDismissed: setCoachPreviewDismissed,
+      mentorMessage,
+      setMentorMessage
   } = useAiCoach({ addMessage, setPreviewDismissed });
 
 
   // Show Modal when Game Result is set
   useEffect(() => {
     setShowGameOverModal(!!gameResult);
+    // Cancel any pending AI moves if game over
+    if (gameResult) {
+        if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+        setIsAiPending(false);
+        activeTurnIdRef.current++; // Invalidate pending turns
+    }
   }, [gameResult]);
 
   // Mobile Notification Logic
@@ -122,13 +142,44 @@ export default function App() {
 
   // --- HANDLERS ---
 
+  // Wrapper to reset hints when AI plays
+  const handleAiApplyMove = useCallback((newState: BoardState, fromState?: BoardState) => {
+      applyMove(newState, fromState);
+      setShowBestMoves(false); // Reset hints for the new turn
+  }, [applyMove]);
+
+  const scheduleAiMove = useCallback((delayMs: number = 2000) => {
+      if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+      
+      setIsAiPending(true);
+      activeTurnIdRef.current++; 
+      const currentTurnId = activeTurnIdRef.current;
+
+      aiTimerRef.current = setTimeout(() => {
+          if (activeTurnIdRef.current === currentTurnId) {
+             triggerAiMove(board, opponentModel, { applyMove: handleAiApplyMove, passTurn, endGameWithScore });
+             setIsAiPending(false);
+             // Note: We DO NOT hide the banner here. Banner stays until user moves.
+          }
+      }, delayMs);
+  }, [board, opponentModel, handleAiApplyMove, passTurn, endGameWithScore, triggerAiMove]);
+
+  const handlePauseAutoPlay = () => {
+      if (aiTimerRef.current) {
+          clearTimeout(aiTimerRef.current);
+      }
+      setIsAiPending(false);
+      activeTurnIdRef.current++; // Invalidate pending turn to stop race result
+  };
+
   const handleForceAi = () => {
       if (board.turn === 'WHITE' && engineStatus !== 'THINKING' && !board.gameOver) {
-          triggerAiMove(board, opponentModel, { applyMove, passTurn, endGameWithScore });
+          triggerAiMove(board, opponentModel, { applyMove: handleAiApplyMove, passTurn, endGameWithScore });
       }
   };
 
   const handleUserResign = async () => {
+      handlePauseAutoPlay();
       const result = await resign('WHITE');
       addMessage('sensei', "Black Resigns. White wins. (Chinese Rules, Komi 0)");
   };
@@ -142,9 +193,7 @@ export default function App() {
       } else {
           // Trigger AI to play
           if (gameMode === 'FREE') {
-            setTimeout(() => {
-                triggerAiMove(nextState, opponentModel, { applyMove, passTurn, endGameWithScore });
-            }, 50);
+            scheduleAiMove(2000);
           }
       }
   };
@@ -158,23 +207,68 @@ export default function App() {
         return;
     }
 
-    // Check Bad Move (Uses the *old* board state and analysis data for context)
-    const isBadMove = await checkBadMove(board, c, analysisData);
-
     const nextState = result.newState;
+    setHighlightedMoveIndex(null); // Clear any highlighting on play
+    setShowBestMoves(false); // Disable hints after move
 
-    // AI Turn Trigger - ONLY if not blocking for correction
-    if (gamePhase === 'PLAY' && gameMode === 'FREE' && nextState && !nextState.gameOver && !isBadMove) {
-        // Slight delay to allow UI to update first
-        setTimeout(() => {
-            if (nextState.turn === 'WHITE') {
-                triggerAiMove(nextState, opponentModel, { applyMove, passTurn, endGameWithScore });
-            }
-        }, 50);
+    // Check Bad Move (Passive - runs in background)
+    const isBad = isMoveSuboptimal(board, c, analysisData);
+
+    // AI Turn Trigger Logic
+    if (gamePhase === 'PLAY' && gameMode === 'FREE' && nextState && !nextState.gameOver && nextState.turn === 'WHITE') {
+        
+        if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+        
+        activeTurnIdRef.current++;
+        const turnId = activeTurnIdRef.current;
+        setIsAiPending(true);
+
+        if (isBad) {
+            // --- BAD MOVE FLOW (PASSIVE) ---
+            setLastMoveQuestionable(true);
+            setIsBadMoveBannerVisible(true); // Show persistent banner
+            setCoachPreviewDismissed(false);
+            setMentorMessage(null); // Clear old message
+
+            // 1. Fetch Feedback (Promise 1)
+            const feedbackPromise = generateBadMoveFeedback(board, c, analysisData);
+            
+            // 2. Wait 5 seconds max (Promise 2)
+            const timeoutPromise = new Promise(resolve => setTimeout(resolve, 5000));
+            
+            // 3. Race condition
+            Promise.race([feedbackPromise, timeoutPromise]).then(() => {
+                // If user hasn't clicked "Pause Game" (turn ID is still valid)
+                if (activeTurnIdRef.current === turnId) {
+                    triggerAiMove(nextState, opponentModel, { applyMove: handleAiApplyMove, passTurn, endGameWithScore });
+                    setIsAiPending(false); 
+                    // Do NOT set isBadMoveBannerVisible to false. Banner persists.
+                }
+            });
+
+        } else {
+            // --- GOOD/NORMAL MOVE FLOW ---
+            setLastMoveQuestionable(false);
+            setIsBadMoveBannerVisible(false); // Hide banner on good moves
+            stopFeedback();
+
+            aiTimerRef.current = setTimeout(() => {
+                if (activeTurnIdRef.current === turnId) {
+                    triggerAiMove(nextState, opponentModel, { applyMove: handleAiApplyMove, passTurn, endGameWithScore });
+                    setIsAiPending(false);
+                }
+            }, 1000); // 1s delay for natural pacing
+        }
     }
-  }, [playMove, gameMode, gamePhase, triggerAiMove, analysisData, board, checkBadMove, opponentModel, applyMove, passTurn, endGameWithScore, addMessage]);
+  }, [
+      playMove, gameMode, gamePhase, triggerAiMove, analysisData, board, opponentModel, 
+      handleAiApplyMove, passTurn, endGameWithScore, addMessage, setIsBadMoveBannerVisible, 
+      isMoveSuboptimal, generateBadMoveFeedback, setLastMoveQuestionable, 
+      setCoachPreviewDismissed, stopFeedback, setMentorMessage
+  ]);
 
   const handleReset = () => {
+        handlePauseAutoPlay();
         reset();
         setMessages([{
             id: Date.now().toString(),
@@ -187,6 +281,8 @@ export default function App() {
         setShowBestMoves(false);
         setUnreadSenseiMsg(null);
         setPreviewDismissed(true);
+        setIsAiPending(false);
+        setHighlightedMoveIndex(null);
   };
 
   const handleSaveGame = () => {
@@ -216,6 +312,7 @@ export default function App() {
                   let newBoard = createBoard(result.size);
                   const newHistoryStack: BoardState[] = [];
 
+                  handlePauseAutoPlay();
                   resetCoach();
                   setGamePhase('PLAY');
 
@@ -262,26 +359,33 @@ export default function App() {
   };
 
   const handleUndo = () => {
+      handlePauseAutoPlay();
       stopFeedback();
-      setIsWaitingForCorrection(false); // Reset waiting state on undo
-      setUnreadSenseiMsg(null); // Clear bubble
+      // Keep banner visible so user can read advice while trying again
+      // setIsBadMoveBannerVisible(false); 
+      setUnreadSenseiMsg(null);
 
       undo();
+      handleRedo(); // Re-using redo logic for clearing states is a bit odd, but safe here as we just want to clear UI states
+      // Actually handleUndo explicitly clears:
       cancelAiMove();
       setAnalysisData([]); 
       setShowBestMoves(false); 
       setActiveMarkers([]);
+      setHighlightedMoveIndex(null);
   };
 
-  const handleContinueAfterBadMove = () => {
+  const handleRedo = () => {
+      handlePauseAutoPlay();
       stopFeedback();
-      setIsWaitingForCorrection(false);
-      setUnreadSenseiMsg(null); // Clear bubble
+      setUnreadSenseiMsg(null);
 
-      // Trigger the AI move that was blocked
-      if (board.turn === 'WHITE') {
-          triggerAiMove(board, opponentModel, { applyMove, passTurn, endGameWithScore });
-      }
+      redo();
+      cancelAiMove();
+      setAnalysisData([]);
+      setShowBestMoves(false);
+      setActiveMarkers([]);
+      setHighlightedMoveIndex(null);
   };
 
   const onSendMessageWrapper = (text: string) => {
@@ -293,6 +397,23 @@ export default function App() {
       setUnreadSenseiMsg(null);
   };
 
+  const handleChatClick = (moveNum: number) => {
+      if (highlightedMoveIndex === moveNum) {
+          setHighlightedMoveIndex(null); // Toggle off
+      } else {
+          setHighlightedMoveIndex(moveNum);
+      }
+  };
+
+  const handleOpenChat = () => {
+      // On mobile, this opens the modal
+      if (window.innerWidth < 1024) {
+          setIsChatOpen(true);
+      }
+      // On desktop, the chat is always open, so we might just focus it or do nothing
+      // Optional: Add a visual cue to the chat window
+  };
+
   // Combine Sensei markers with "Best Moves" if enabled
   const getCombinedMarkers = (): Marker[] => {
     let baseMarkers = [...activeMarkers];
@@ -302,7 +423,9 @@ export default function App() {
             x: m.coordinate.x,
             y: m.coordinate.y,
             type: 'CIRCLE',
-            label: m.score.toFixed(1)
+            label: m.score.toFixed(1),
+            // Black stone for Black turn, White for White
+            color: board.turn === 'BLACK' ? '#0f172a' : '#ffffff' 
         }));
         
         baseMarkers = baseMarkers.filter(bm => 
@@ -313,18 +436,8 @@ export default function App() {
     return baseMarkers;
   };
 
-  const chatActions: ChatAction[] = isWaitingForCorrection ? [
-      { 
-          label: "Try Again (Undo)", 
-          onClick: handleUndo, 
-          variant: 'secondary' 
-      },
-      { 
-          label: "Ask White to Continue", 
-          onClick: handleContinueAfterBadMove, 
-          variant: 'primary' 
-      }
-  ] : [];
+  // Determine which banner to show
+  const showMentorBanner = isBadMoveBannerVisible;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
@@ -344,81 +457,127 @@ export default function App() {
       <div className="flex-1 flex flex-row overflow-hidden relative">
          
          <div className="flex-1 overflow-y-auto p-4 lg:p-8 flex flex-col items-center gap-4">
-             {isWaitingForCorrection ? (
-                 <div className="w-full bg-amber-500 text-white px-4 py-3 rounded-xl shadow-sm border border-amber-600 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 min-h-[3.8rem]">
-                     <div className="flex items-center gap-3">
-                         <div className="text-xl bg-white/20 rounded-full w-9 h-9 flex items-center justify-center shrink-0">🛑</div>
-                         <div className="flex flex-col">
-                             <span className="font-bold text-sm leading-tight">Paused • Check Chat</span>
-                             <span className="text-[10px] text-amber-100 opacity-90">GoBot has some advice for you.</span>
+             
+             {/* MENTOR BANNER: Now renders ABOVE controls. Replaces controls when visible on ALL screens. */}
+             {showMentorBanner && (
+                 <div className="w-full bg-amber-50 px-2 sm:px-4 py-2 rounded-xl shadow-sm border border-amber-200 flex flex-row items-center justify-between gap-2 h-auto min-h-[4rem] animate-in fade-in slide-in-from-top-1 transition-all z-10 relative box-border shrink-0">
+                     <div 
+                        className="flex items-center gap-2 overflow-hidden flex-1 cursor-pointer group py-1"
+                        onClick={handleOpenChat}
+                        title="Click to discuss with AI"
+                     >
+                         <div className="text-lg sm:text-xl shrink-0 group-hover:scale-110 transition-transform self-start mt-0.5">🤔</div>
+                         <div className="flex flex-col min-w-0">
+                             <span className="font-bold text-xs sm:text-sm text-amber-900 pr-1 group-hover:text-amber-700 underline decoration-dotted decoration-amber-400 underline-offset-2 whitespace-normal line-clamp-2 lg:line-clamp-1 leading-tight">
+                                 {mentorMessage || "A better move might be available."}
+                             </span>
+                             {!mentorMessage && (
+                                <span className="text-[10px] text-amber-700 opacity-80 truncate hidden sm:inline">
+                                    Check hints or wait for AI...
+                                </span>
+                             )}
                          </div>
                      </div>
-                     <div className="flex gap-2 ml-auto">
+                     <div className="flex items-center gap-1 sm:gap-2 shrink-0 self-start mt-0.5">
+                          <button
+                             onClick={() => setShowBestMoves(prev => !prev)}
+                             className={`px-2 py-1.5 sm:px-3 rounded-lg text-xs font-bold border transition-colors shadow-sm whitespace-nowrap ${
+                                showBestMoves 
+                                ? 'bg-amber-200 text-amber-800 border-amber-300' 
+                                : 'bg-white hover:bg-amber-100 text-amber-700 border-amber-200'
+                             }`}
+                          >
+                             Hints
+                          </button>
+
                           <button
                              onClick={handleUndo}
-                             className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold border border-white/20 transition-all active:scale-95 flex items-center gap-1"
+                             disabled={historyStack.length === 0}
+                             className="px-2 py-1.5 sm:px-3 rounded-lg text-xs font-bold border transition-colors shadow-sm whitespace-nowrap bg-white hover:bg-amber-100 text-amber-700 border-amber-200 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                                <path fillRule="evenodd" d="M7.793 2.232a.75.75 0 01-.025 1.06L3.622 7.25h10.003a5.375 5.375 0 010 10.75H10.75a.75.75 0 010-1.5h2.875a3.875 3.875 0 000-7.75H3.622l4.146 3.957a.75.75 0 01-1.036 1.085l-5.5-5.25a.75.75 0 010-1.085l5.5-5.25a.75.75 0 011.06.025z" clipRule="evenodd" />
-                             </svg>
                              Undo
                           </button>
+
                           <button
-                             onClick={handleContinueAfterBadMove}
-                             className="px-4 py-2 bg-white text-amber-600 hover:bg-amber-50 rounded-lg text-xs font-bold shadow-sm transition-all active:scale-95"
+                             onClick={handleRedo}
+                             disabled={redoStack.length === 0}
+                             className="px-2 py-1.5 sm:px-3 rounded-lg text-xs font-bold border transition-colors shadow-sm whitespace-nowrap bg-white hover:bg-amber-100 text-amber-700 border-amber-200 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                             Continue Game
+                             Redo
+                          </button>
+
+                          <div className="w-px h-6 bg-amber-200 mx-0.5 sm:mx-1"></div>
+
+                          <button
+                             onClick={() => {
+                                 setIsBadMoveBannerVisible(false);
+                                 // Force AI to play if dismissed manually and it was user's turn
+                                 if (board.turn === 'WHITE' && !board.gameOver) {
+                                     triggerAiMove(board, opponentModel, { applyMove: handleAiApplyMove, passTurn, endGameWithScore });
+                                 }
+                             }}
+                             className="p-1.5 sm:p-2 hover:bg-amber-100 rounded-lg text-amber-600 transition-colors"
+                             title="Dismiss"
+                          >
+                             ✕
                           </button>
                      </div>
                  </div>
-             ) : (
-                <GameControls 
-                     opponentModel={opponentModel}
-                     setOpponentModel={setOpponentModel}
-                     gamePhase={gamePhase}
-                     setGamePhase={setGamePhase}
-                     engineStatus={engineStatus}
-                     board={board}
-                     onCancelAi={cancelAiMove}
-                     onForceAi={handleForceAi}
-                     onUndo={handleUndo}
-                     onRedo={redo}
-                     onPass={handleUserPass}
-                     onResign={handleUserResign}
-                     historyLength={historyStack.length}
-                     redoLength={redoStack.length}
-                     confirmationPending={confirmationPending}
-                     setConfirmationPending={setConfirmationPending}
-                     setupTool={setupTool}
-                     setSetupTool={setSetupTool}
-                     onToggleBestMoves={() => setShowBestMoves(prev => !prev)}
-                     onClearMarks={() => { setActiveMarkers([]); setShowBestMoves(false); }}
-                     showBestMoves={showBestMoves}
-                 />
              )}
+
+             <div className={`w-full ${showMentorBanner ? 'hidden' : 'block'}`}>
+                <GameControls 
+                        opponentModel={opponentModel}
+                        setOpponentModel={setOpponentModel}
+                        gamePhase={gamePhase}
+                        setGamePhase={setGamePhase}
+                        engineStatus={engineStatus}
+                        board={board}
+                        onCancelAi={cancelAiMove}
+                        onForceAi={handleForceAi}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        onPass={handleUserPass}
+                        onResign={handleUserResign}
+                        historyLength={historyStack.length}
+                        redoLength={redoStack.length}
+                        confirmationPending={confirmationPending}
+                        setConfirmationPending={setConfirmationPending}
+                        setupTool={setupTool}
+                        setSetupTool={setSetupTool}
+                        onToggleBestMoves={() => setShowBestMoves(prev => !prev)}
+                        onClearMarks={() => { setActiveMarkers([]); setShowBestMoves(false); }}
+                        showBestMoves={showBestMoves}
+                        autoCoachEnabled={autoCoachEnabled}
+                        onToggleAutoCoach={() => setAutoCoachEnabled(prev => !prev)}
+                />
+             </div>
 
              <GoBoard 
                  board={board}
                  onPlay={handlePlay}
-                 interactive={gamePhase === 'SETUP' || (!board.gameOver && engineStatus !== 'THINKING' && !isWaitingForCorrection)} 
+                 interactive={gamePhase === 'SETUP' || (!board.gameOver && engineStatus !== 'THINKING' && !isAiPending)} 
                  markers={getCombinedMarkers()}
                  ghostColor={getGhostColor()}
-                 isWaitingForCorrection={isWaitingForCorrection}
+                 isWaitingForCorrection={false}
+                 onContinue={() => {}} // Legacy
+                 highlightedMoveIndex={highlightedMoveIndex}
              />
 
              <ScoreBar board={board} gameResult={gameResult} />             
          </div>
 
-         <div className="hidden lg:flex w-[400px] bg-white border-l border-slate-200 p-0 shadow-sm z-10 flex-col h-full">
+         <div className="hidden lg:flex w-[400px] bg-slate-50 border-l border-slate-200 p-4 shadow-sm z-10 flex-col h-full justify-center">
              <SenseiChat 
                  messages={messages}
                  loading={isSenseiThinking}
                  onSendMessage={onSendMessageWrapper}
                  senseiModel={senseiModel}
                  onModelChange={setSenseiModel}
-                 className="h-full rounded-none border-none shadow-none"
-                 actions={chatActions}
-                 isActive={isWaitingForCorrection}
+                 className="h-full max-h-[700px]"
+                 actions={[]}
+                 isActive={isBadMoveBannerVisible}
+                 onMessageClick={handleChatClick}
              />
          </div>
       </div>
@@ -430,12 +589,12 @@ export default function App() {
         previewDismissed={previewDismissed}
         onDismissPreview={handleDismissPreview}
         isSenseiThinking={isSenseiThinking}
-        isWaitingForCorrection={isWaitingForCorrection}
+        isWaitingForCorrection={isBadMoveBannerVisible}
         messages={messages}
         onSendMessage={onSendMessageWrapper}
         senseiModel={senseiModel}
         onModelChange={setSenseiModel}
-        chatActions={chatActions}
+        chatActions={[]}
       />
       
       <GameOverModal 
