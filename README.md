@@ -1,10 +1,10 @@
-# GoCratic - Socratic Go Tutor
+# GoBot
 
 GoCratic is a web-based Go (Baduk/Weiqi) learning platform designed for children and beginners. Unlike traditional engines that simply tell you the best move, GoCratic features **GoBot**, an AI tutor powered by Google Gemini that uses the Socratic method to guide players toward finding the solution themselves.
 
 ## Features
 
-### 🤖 Socratic AI Tutor (GoBot)
+### 🤖 GoBot 
 *   **Smart Intervention**: The AI monitors your game in real-time. If you play a move that is significantly worse than the best option (based on engine analysis), the game "Pauses" and a notification appears. The AI then gently asks a guiding question to help you realize why the move might be a mistake before you commit to it.
 *   **3-Level Hint System**:
     1.  **Guiding Question**: Highlights key areas (e.g., opponent's last move) and prompts thinking.
@@ -81,7 +81,7 @@ State logic is separated into specialized hooks for cleaner code:
     ```
 
 3.  **Configure API Key**
-    To enable the Socratic AI features (GoBot) and Gemini Opponents, you need a **Google Gemini API Key**.
+    To enable the AI features (GoBot) and Gemini Opponents, you need a **Google Gemini API Key**.
     1.  Get a free key from [Google AI Studio](https://aistudio.google.com/).
     2.  Create a `.env` file in the root directory.
     3.  Add the key:
