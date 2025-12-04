@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat, ChatAction } from './components/SenseiChat';
@@ -46,7 +47,10 @@ export default function App() {
       id: Date.now().toString(), 
       sender, 
       text,
-      moveNumber: board.history.length 
+      // Use +1 to show the Current Turn Number (e.g., 2 stones placed = Move 3 is next)
+      // Note: Feedback messages generated in the same render cycle as a move will capture 
+      // the old length, correctly labeling the move just played.
+      moveNumber: board.history.length + 1
     }]);
   }, [board.history.length]);
 
@@ -62,7 +66,7 @@ export default function App() {
   const [highlightedMoveIndex, setHighlightedMoveIndex] = useState<number | null>(null);
 
   // AI Scheduling State
-  const aiTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const aiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isAiPending, setIsAiPending] = useState(false);
   
   // Track unique ID for each AI turn to handle race conditions vs cancellations
@@ -360,32 +364,34 @@ export default function App() {
 
   const handleUndo = () => {
       handlePauseAutoPlay();
-      stopFeedback();
-      // Keep banner visible so user can read advice while trying again
-      // setIsBadMoveBannerVisible(false); 
-      setUnreadSenseiMsg(null);
-
       undo();
-      handleRedo(); // Re-using redo logic for clearing states is a bit odd, but safe here as we just want to clear UI states
-      // Actually handleUndo explicitly clears:
-      cancelAiMove();
+      
+      // We manually clear transient UI but PRESERVE the Mentor Banner state
+      // This allows the user to undo a move but still see the advice if they wish
       setAnalysisData([]); 
       setShowBestMoves(false); 
-      setActiveMarkers([]);
+      setUnreadSenseiMsg(null);
       setHighlightedMoveIndex(null);
+      
+      setActiveMarkers([]); 
+      stopFeedback();
+      cancelAiMove();
+      // NOTE: We do NOT call resetCoach() here because it clears the mentorMessage
   };
 
   const handleRedo = () => {
       handlePauseAutoPlay();
-      stopFeedback();
-      setUnreadSenseiMsg(null);
-
       redo();
-      cancelAiMove();
+      
+      // Same logic as Undo: Clear hints but preserve Dialogue/Banner
       setAnalysisData([]);
       setShowBestMoves(false);
-      setActiveMarkers([]);
+      setUnreadSenseiMsg(null);
       setHighlightedMoveIndex(null);
+
+      setActiveMarkers([]);
+      stopFeedback();
+      cancelAiMove();
   };
 
   const onSendMessageWrapper = (text: string) => {
