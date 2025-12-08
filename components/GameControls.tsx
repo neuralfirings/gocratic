@@ -62,13 +62,6 @@ export const GameControls: React.FC<GameControlsProps> = ({
                 {/* Left: Opponent & Mode Toggle & Thinking Status */}
                 <div className="flex items-center gap-2 flex-1 min-w-0 overflow-hidden">
 
-                    {/* Auto-Coach Toggle */}
-                    <div className="flex items-center gap-2 mr-2 cursor-pointer" onClick={onToggleAutoCoach}>
-                        <span className="text-[10px] font-bold text-slate-500 uppercase whitespace-nowrap select-none">Coach</span>
-                        <div className={`w-8 h-4 rounded-full relative transition-colors duration-200 ease-in-out shrink-0 ${autoCoachEnabled ? 'bg-indigo-500' : 'bg-slate-300'}`}>
-                            <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-transform duration-200 ease-in-out ${autoCoachEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                        </div>
-                    </div>
 
 
                     <select 
@@ -92,6 +85,22 @@ export const GameControls: React.FC<GameControlsProps> = ({
                             <option value="gnugo_9">GNU Go Lvl 9</option>
                             <option value="gnugo_10">GNU Go Lvl 10</option>
                     </select>
+
+
+                    {/* Auto-Coach Toggle */}
+                    <div className="flex items-center gap-2 mr-2 cursor-pointer" onClick={onToggleAutoCoach}>
+                        <div className={`w-8 h-4 rounded-full relative transition-colors duration-200 ease-in-out shrink-0 ${autoCoachEnabled ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+                            <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-transform duration-200 ease-in-out ${autoCoachEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase whitespace-nowrap select-none">Coach</span>
+                    </div>
+
+                    <button 
+                        onClick={onToggleBestMoves}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${showBestMoves ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-white text-slate-600 border-slate-200'}`}
+                    >
+                        Hints
+                    </button>
 
                     {/* Inline Thinking Indicator */}
                     {engineStatus === 'THINKING' ? (
@@ -203,14 +212,6 @@ export const GameControls: React.FC<GameControlsProps> = ({
                             className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${gamePhase === 'SETUP' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-slate-600 border-slate-200'}`}
                         >
                             Setup
-                        </button>
-
-                        {/* Hints */}
-                        <button 
-                            onClick={onToggleBestMoves}
-                            className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${showBestMoves ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-white text-slate-600 border-slate-200'}`}
-                        >
-                            Hints {showBestMoves ? 'ON' : 'OFF'}
                         </button>
 
                         {/* Force AI */}
