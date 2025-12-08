@@ -3,6 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GoBoard } from './components/GoBoard';
 import { SenseiChat, ChatAction } from './components/SenseiChat';
 import { GameOverModal } from './components/GameOverModal';
+import { HelpModal } from './components/HelpModal';
 import { Navbar } from './components/Navbar';
 import { GameControls } from './components/GameControls';
 import { ScoreBar } from './components/ScoreBar';
@@ -33,6 +34,7 @@ export default function App() {
   } = useGoGame(9);
 
   const [showGameOverModal, setShowGameOverModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([{
@@ -458,6 +460,7 @@ export default function App() {
           onSave={handleSaveGame}
           onLoadFile={handleLoadGameFile}
           onCopyGnu={(msg) => addMessage('sensei', msg)}
+          onHelp={() => setShowHelpModal(true)}
       />
 
       <div className="flex-1 flex flex-row overflow-hidden relative">
@@ -609,6 +612,12 @@ export default function App() {
           onClose={() => setShowGameOverModal(false)}
           onNewGame={handleReset}
       />
+
+      <HelpModal 
+          isOpen={showHelpModal} 
+          onClose={() => setShowHelpModal(false)} 
+      />
+
     </div>
   );
 }

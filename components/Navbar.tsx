@@ -12,7 +12,8 @@ interface NavbarProps {
   onReset: () => void;
   onSave: () => void;
   onLoadFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onCopyGnu: (msg: string) => void; // Pass a callback to show success message
+  onCopyGnu: (msg: string) => void;
+  onHelp: () => void; // New prop
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -24,7 +25,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onReset,
   onSave,
   onLoadFile,
-  onCopyGnu
+  onCopyGnu,
+  onHelp
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,15 +106,24 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
          </div>
 
-         <div className="flex items-center gap-4 text-sm">
-            <div className="hidden md:block px-3 py-1 bg-slate-100 rounded-full text-slate-600 font-medium text-xs">
+         <div className="flex items-center gap-2 sm:gap-4 text-sm">
+            <div className="hidden px-3 py-1 bg-slate-100 rounded-full text-slate-600 font-medium text-xs">
                 {gameMode === 'FREE' ? 'Free Play' : 'Puzzle Mode'}
             </div>
             {sessionCost > 0 && (
-                <div className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full font-bold border border-emerald-100 text-xs">
+                <div className="hidden sm:block px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full font-bold border border-emerald-100 text-xs">
                     ${sessionCost.toFixed(4)}
                 </div>
             )}
+            
+            {/* Help Button */}
+            <button 
+                onClick={onHelp}
+                className="sm:block px-3 py-1 bg-gray-50 text-gray-700 rounded-full font-bold border border-gray-100 text-xs"
+                title="Help"
+            >
+                Help
+            </button>
          </div>
     </div>
   );
