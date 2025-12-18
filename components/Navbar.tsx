@@ -5,7 +5,6 @@ import { toGtpCoordinate } from '../services/gtpUtils';
 
 interface NavbarProps {
   board: BoardState;
-  gameMode: string;
   sessionCost: number;
   confirmationPending: 'RESET' | 'RESIGN' | null;
   setConfirmationPending: (val: 'RESET' | 'RESIGN' | null) => void;
@@ -13,12 +12,11 @@ interface NavbarProps {
   onSave: () => void;
   onLoadFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onCopyGnu: (msg: string) => void;
-  onHelp: () => void; // New prop
+  onHelp: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   board,
-  gameMode,
   sessionCost,
   confirmationPending,
   setConfirmationPending,
@@ -46,7 +44,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     onCopyGnu("Copied game array to clipboard!");
   };
 
-  // Simple check for development environment (localhost) to hide debug tools in production
   const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   return (
@@ -107,16 +104,12 @@ export const Navbar: React.FC<NavbarProps> = ({
          </div>
 
          <div className="flex items-center gap-2 sm:gap-4 text-sm">
-            <div className="hidden px-3 py-1 bg-slate-100 rounded-full text-slate-600 font-medium text-xs">
-                {gameMode === 'FREE' ? 'Free Play' : 'Puzzle Mode'}
-            </div>
             {sessionCost > 0 && (
                 <div className="hidden sm:block px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full font-bold border border-emerald-100 text-xs">
                     ${sessionCost.toFixed(4)}
                 </div>
             )}
             
-            {/* Help Button */}
             <button 
                 onClick={onHelp}
                 className="sm:block px-3 py-1 bg-gray-50 text-gray-700 rounded-full font-bold border border-gray-100 text-xs"

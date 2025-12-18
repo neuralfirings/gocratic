@@ -116,8 +116,9 @@ export const useGoGame = (size: number = 9) => {
         setRedoStack(prev => prev.slice(0, -1));
     }, [redoStack, board]);
 
-    const reset = useCallback(() => {
-        setBoard(createBoard(size));
+    const reset = useCallback((newSize?: number) => {
+        const s = newSize ?? size;
+        setBoard(createBoard(s));
         setHistoryStack([]);
         setRedoStack([]);
         setGameResult(null);

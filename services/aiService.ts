@@ -4,7 +4,8 @@ import { BoardState, ChatMessage, Marker, AnalysisMove, Coordinate } from "../ty
 import { boardToString } from "./gameLogic";
 import { toGtpCoordinate, fromGtpCoordinate } from "./gtpUtils";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Correct GoogleGenAI initialization using apiKey from process.env.API_KEY
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const SYSTEM_INSTRUCTION = `
 You are "GoBot", a kind, wise, and patient Go (Baduk/Weiqi) teacher for children.
@@ -75,14 +76,12 @@ export const getSenseiResponse = async (
   board: BoardState, 
   history: ChatMessage[],
   userMessage: string,
-  modelName: string = "gemini-2.5-flash",
+  modelName: string = "gemini-3-flash-preview",
   analysisData: AnalysisMove[] = []
 ): Promise<{ text: string; markers?: Marker[], cost: number }> => {
   
-  if (!process.env.API_KEY) {
-    return { text: "I need an API Key to see the board! (Check metadata.json configuration)", cost: 0 };
-  }
-
+  // Update to use gemini-3-flash-preview as default for text tasks
+  const activeModel = modelName || "gemini-3-flash-preview";
   const boardAscii = boardToString(board);
   
   // --- Build Interleaved History ---
@@ -139,7 +138,7 @@ export const getSenseiResponse = async (
 
   // Define full payload
   const requestPayload = {
-    model: modelName,
+    model: activeModel,
     contents: prompt,
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
@@ -157,6 +156,7 @@ export const getSenseiResponse = async (
   try {
     const response = await ai.models.generateContent(requestPayload);
 
+    // Using .text property directly as per guidelines
     const responseText = response.text || "{}";
     
     // --- LOGGING RESPONSE ---
@@ -164,19 +164,16 @@ export const getSenseiResponse = async (
       console.log("🤖 [GoBot] Raw Response:", responseText);
     }
 
-    // Calculate Cost
+    // Calculate Cost (Estimate)
     const inputTokens = (prompt.length + SYSTEM_INSTRUCTION.length) / 4;
     const outputTokens = responseText.length / 4;
     
     let inputPrice = 0.075;
     let outputPrice = 0.30;
 
-    if (modelName.includes('pro')) {
+    if (activeModel.includes('pro')) {
         inputPrice = 1.25;
         outputPrice = 5.00;
-    } else if (modelName.includes('lite')) {
-        inputPrice = 0.075; // Estimate similar to Flash but typically cheaper/faster
-        outputPrice = 0.30;
     }
 
     const estimatedCost = (inputTokens / 1000000 * inputPrice) + (outputTokens / 1000000 * outputPrice);
@@ -238,11 +235,12 @@ export const getBadMoveFeedback = async (
   board: BoardState,
   playedMove: Coordinate,
   hints: AnalysisMove[],
-  modelName: string = "gemini-2.5-flash"
+  modelName: string = "gemini-3-flash-preview"
 ): Promise<{ text: string, cost: number }> => {
     
-    if (!process.env.API_KEY || hints.length === 0) return { text: "", cost: 0 };
+    if (hints.length === 0) return { text: "", cost: 0 };
 
+    const activeModel = modelName || "gemini-3-flash-preview";
     const boardAscii = boardToString(board);
     const playedGtp = toGtpCoordinate(playedMove, board.size);
     const hintsGtp = hints.slice(0, 3).map(h => toGtpCoordinate(h.coordinate, board.size)).join(", ");
@@ -259,7 +257,7 @@ export const getBadMoveFeedback = async (
     `;
 
     const requestPayload = {
-      model: modelName,
+      model: activeModel,
       contents: prompt,
       config: {
         systemInstruction: BAD_MOVE_SYSTEM_INSTRUCTION,

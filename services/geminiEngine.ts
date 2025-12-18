@@ -4,7 +4,8 @@ import { BoardState, Coordinate } from "../types";
 import { boardToString, getLegalMoves } from "./gameLogic";
 import { fromGtpCoordinate } from "./gtpUtils";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Correct GoogleGenAI initialization using apiKey from process.env.API_KEY
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const SYSTEM_INSTRUCTION = `
 You are a competitive Go (Baduk/Weiqi) engine. 
@@ -36,11 +37,8 @@ export interface GeminiMoveResult {
   isResign: boolean;
 }
 
-export const getGeminiMove = async (board: BoardState, modelName: string = "gemini-2.5-flash"): Promise<GeminiMoveResult | null> => {
-  if (!process.env.API_KEY) {
-    console.error("No API Key found for Gemini Engine");
-    return null;
-  }
+export const getGeminiMove = async (board: BoardState, modelName: string = "gemini-3-flash-preview"): Promise<GeminiMoveResult | null> => {
+  const activeModel = modelName || "gemini-3-flash-preview";
 
   // 1. generate prompt
   const boardAscii = boardToString(board);
@@ -56,7 +54,7 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
 
   // Define full payload
   const requestPayload = {
-    model: modelName,
+    model: activeModel,
     contents: prompt,
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
@@ -75,6 +73,7 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
     // 2. Call Gemini
     const response = await ai.models.generateContent(requestPayload);
 
+    // Using .text property directly as per guidelines
     const responseText = response.text || "{}";
     
     // --- LOGGING RESPONSE ---
@@ -89,12 +88,9 @@ export const getGeminiMove = async (board: BoardState, modelName: string = "gemi
     let inputPrice = 0.075;
     let outputPrice = 0.30;
 
-    if (modelName.includes('pro')) {
+    if (activeModel.includes('pro')) {
         inputPrice = 1.25;
         outputPrice = 5.00;
-    } else if (modelName.includes('lite')) {
-        inputPrice = 0.075; // Estimate
-        outputPrice = 0.30;
     }
     
     const estimatedCost = (inputTokens / 1000000 * inputPrice) + (outputTokens / 1000000 * outputPrice);

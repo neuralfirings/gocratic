@@ -1,5 +1,4 @@
 
-
 export type StoneColor = 'BLACK' | 'WHITE';
 
 export interface Coordinate {
@@ -53,15 +52,6 @@ export interface ChatMessage {
   moveNumber: number; // The turn count when this message was sent (for context interleaving)
 }
 
-export interface Puzzle {
-  id: string;
-  title: string;
-  description: string;
-  initialStones: Stone[];
-  targetSolution?: Coordinate; // Simplified for demo
-  difficulty: 'Beginner' | 'Intermediate';
-}
-
 export type DifficultyLevel = number; // 1-10
 
 export type EngineStatus = 'INITIALIZING' | 'READY' | 'THINKING' | 'ERROR';
@@ -91,4 +81,22 @@ export interface GameResult {
 export interface AnalysisMove {
   coordinate: Coordinate;
   score: number;
+}
+
+export interface InfluenceMap {
+  [key: string]: number; // "x,y" -> value from -1 (Full White) to 1 (Full Black)
+}
+
+// Added Puzzle interface to fix missing export error in puzzleData.ts
+export interface Puzzle {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  difficulty: string;
+  initialStones: Stone[];
+  solutions: Coordinate[];
+  failureMessages?: {
+    [key: string]: string;
+  };
 }
