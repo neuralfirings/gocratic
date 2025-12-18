@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { BoardState, EngineStatus, GamePhase, SetupTool } from '../types';
+import { BoardState, EngineStatus, GamePhase, SetupTool, StoneColor } from '../types';
 
 interface GameControlsProps {
     opponentModel: string | number;
@@ -23,6 +23,8 @@ interface GameControlsProps {
     onToggleBestMoves: () => void;
     showBestMoves: boolean;
     onOpenSettings: () => void;
+    onSetTurn?: (color: StoneColor) => void;
+    onExitSetup?: () => void;
 }
 
 export const GameControls: React.FC<GameControlsProps> = ({
@@ -45,7 +47,9 @@ export const GameControls: React.FC<GameControlsProps> = ({
     setSetupTool,
     onToggleBestMoves,
     showBestMoves,
-    onOpenSettings
+    onOpenSettings,
+    onSetTurn,
+    onExitSetup
 }) => {
     return (
         <div className="w-full bg-white px-3 py-2 sm:px-4 sm:py-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-3 relative z-10 box-border">
@@ -59,6 +63,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
                         onChange={(e) => setOpponentModel(e.target.value)}
                         className="bg-slate-50 border border-slate-300 text-slate-700 text-xs rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2 font-bold truncate max-w-[130px] shadow-sm"
                     >
+                        <option value="human">👤 Human v. Human</option>
                         <option value="gnugo_-5">GNU Go Lvl -5</option>
                         <option value="gnugo_-4">GNU Go Lvl -4</option>
                         <option value="gnugo_-3">GNU Go Lvl -3</option>
@@ -131,7 +136,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
                             <span>⏳ thinking...</span>
                             <button onClick={onCancelAi} className="text-red-500 underline ml-1 hover:text-red-700 transition-colors">Cancel</button>
                         </div>
-                    ) : (board.turn === 'WHITE' && !board.gameOver) ? (
+                    ) : (gamePhase === 'PLAY' && board.turn === 'WHITE' && !board.gameOver && opponentModel !== 'human') ? (
                         <button 
                             onClick={onForceAi} 
                             className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 rounded-lg text-xs font-bold transition-all active:scale-95 whitespace-nowrap shadow-sm"
@@ -164,16 +169,48 @@ export const GameControls: React.FC<GameControlsProps> = ({
 
             {/* Setup Tools (Only visible if Setup Mode is active) */}
             {gamePhase === 'SETUP' && (
-                <div className="flex gap-1 p-1 bg-indigo-50 rounded-lg animate-in fade-in slide-in-from-top-1 border border-indigo-100">
-                    {(['ALTERNATE', 'BLACK_ONLY', 'WHITE_ONLY', 'CLEAR'] as SetupTool[]).map(tool => (
-                        <button
-                            key={tool}
-                            onClick={() => setSetupTool(tool)}
-                            className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${setupTool === tool ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
-                        >
-                            {tool.replace('_', ' ')}
-                        </button>
-                    ))}
+                <div className="flex flex-col sm:flex-row gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl animate-in fade-in slide-in-from-top-1 items-center">
+                    {/* Setup Stone Tools */}
+                    <div className="flex-1 flex gap-1 p-1 bg-white border border-slate-200 rounded-lg w-full">
+                        {(['ALTERNATE', 'BLACK_ONLY', 'WHITE_ONLY', 'CLEAR'] as SetupTool[]).map(tool => (
+                            <button
+                                key={tool}
+                                onClick={() => setSetupTool(tool)}
+                                className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${setupTool === tool ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                            >
+                                {tool.replace('_', ' ')}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="hidden sm:block w-px h-8 bg-slate-200 mx-1" />
+
+                    {/* Turn Selector Tool */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-1 w-full sm:w-auto">
+                        <span className="text-[10px] font-bold text-slate-400 px-2 uppercase tracking-tight whitespace-nowrap">Next Move:</span>
+                        <div className="flex flex-1 gap-1">
+                          {(['BLACK', 'WHITE'] as StoneColor[]).map(color => (
+                              <button
+                                  key={color}
+                                  onClick={() => onSetTurn?.(color)}
+                                  className={`flex-1 px-4 py-1.5 text-[10px] font-bold rounded transition-all flex items-center justify-center gap-2 ${board.turn === color ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                              >
+                                  <div className={`w-2.5 h-2.5 rounded-full border ${color === 'BLACK' ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`} />
+                                  {color}
+                              </button>
+                          ))}
+                        </div>
+                    </div>
+
+                    <div className="hidden sm:block w-px h-8 bg-slate-200 mx-1" />
+
+                    {/* Done Button */}
+                    <button 
+                        onClick={onExitSetup}
+                        className="w-full sm:w-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-lg shadow-indigo-200 transition-all active:scale-95 whitespace-nowrap"
+                    >
+                        Done
+                    </button>
                 </div>
             )}
         </div>

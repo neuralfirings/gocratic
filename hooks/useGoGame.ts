@@ -145,6 +145,10 @@ export const useGoGame = (size: number = 9) => {
         return resObj;
     }, []);
 
+    const setTurn = useCallback((color: StoneColor) => {
+        setBoard(prev => ({ ...prev, turn: color }));
+    }, []);
+
     return {
         board, setBoard,
         historyStack,
@@ -153,6 +157,6 @@ export const useGoGame = (size: number = 9) => {
         gamePhase, setGamePhase,
         setupTool, setSetupTool,
         confirmationPending, setConfirmationPending,
-        playMove, applyMove, passTurn, resign, undo, redo, reset, loadGame, endGameWithScore
+        playMove, applyMove, passTurn, resign, undo, redo, reset, loadGame, endGameWithScore, setTurn
     };
 };

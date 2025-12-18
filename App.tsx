@@ -31,11 +31,11 @@ export default function App() {
       board, setBoard,
       historyStack,
       redoStack,
-      gameResult,
+      gameResult, setGameResult,
       gamePhase, setGamePhase,
       setupTool, setSetupTool,
       confirmationPending, setConfirmationPending,
-      playMove, applyMove, passTurn, resign, undo, redo, reset, loadGame, endGameWithScore
+      playMove, applyMove, passTurn, resign, undo, redo, reset, loadGame, endGameWithScore, setTurn
   } = useGoGame(boardSize);
 
   const [showGameOverModal, setShowGameOverModal] = useState(false);
@@ -65,7 +65,7 @@ export default function App() {
   const [unreadSenseiMsg, setUnreadSenseiMsg] = useState<string | null>(null);
   const [previewDismissed, setPreviewDismissed] = useState(false);
 
-  // Config State
+  // Config State - Default Level is GNU Go 1
   const [opponentModel, setOpponentModel] = useState<string | number>("gnugo_1"); 
   const [senseiModel, setSenseiModel] = useState<string>("gemini-3-pro-preview");
   const [showBestMoves, setShowBestMoves] = useState(false);
@@ -77,7 +77,7 @@ export default function App() {
   const activeTurnIdRef = useRef<number>(0);
 
   // --- CUSTOM HOOKS ---
-  const { analysisData, setAnalysisData } = useAnalysis(board);
+  const { analysisData, setAnalysisData } = useAnalysis(board, gamePhase);
   const {
       engineStatus,
       isSenseiThinking,
@@ -142,7 +142,7 @@ export default function App() {
   }, []);
 
   const handleForceAi = useCallback(async () => {
-      if (board.gameOver) return;
+      if (board.gameOver || opponentModel === 'human') return;
       handlePauseAutoPlay();
       await triggerAiMove(board, opponentModel, { applyMove, passTurn, endGameWithScore });
       setIsAiPending(false);
@@ -157,7 +157,7 @@ export default function App() {
       return;
     }
 
-    if (gamePhase === 'PLAY' && nextState.turn === 'WHITE') {
+    if (gamePhase === 'PLAY' && nextState.turn === 'WHITE' && opponentModel !== 'human') {
         setIsAiPending(true);
         activeTurnIdRef.current++;
         const turnId = activeTurnIdRef.current;
@@ -172,9 +172,9 @@ export default function App() {
 
   const handleUserResign = useCallback(() => {
     handlePauseAutoPlay();
-    resign('WHITE'); 
+    resign(board.turn === 'BLACK' ? 'WHITE' : 'BLACK'); 
     addMessage('sensei', "You've resigned. It's okay! We learn the most from our losses. 🧠");
-  }, [resign, handlePauseAutoPlay, addMessage]);
+  }, [resign, handlePauseAutoPlay, addMessage, board.turn]);
 
   const handlePlay = useCallback(async (c: Coordinate) => {
     const result = playMove(c);
@@ -186,12 +186,15 @@ export default function App() {
     const nextState = result.newState;
     if (!nextState) return;
 
+    // Skip all coaching and AI logic if we are in SETUP mode
+    if (gamePhase === 'SETUP') return;
+
     setHighlightedMoveIndex(null);
     setShowBestMoves(false);
 
     const isBad = isMoveSuboptimal(board, c, analysisData);
 
-    if (gamePhase === 'PLAY' && !nextState.gameOver && nextState.turn === 'WHITE') {
+    if (gamePhase === 'PLAY' && !nextState.gameOver && nextState.turn === 'WHITE' && opponentModel !== 'human') {
         if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
         activeTurnIdRef.current++;
         const turnId = activeTurnIdRef.current;
@@ -225,6 +228,11 @@ export default function App() {
                 }
             }, 1000);
         }
+    } else if (isBad) {
+        // Still show coach feedback in human v human mode if move is bad
+        setIsBadMoveBannerVisible(true);
+        setPreviewDismissed(false);
+        generateBadMoveFeedback(board, c, analysisData);
     }
   }, [playMove, gamePhase, triggerAiMove, analysisData, board, opponentModel, applyMove, passTurn, endGameWithScore, addMessage, setIsBadMoveBannerVisible, isMoveSuboptimal, generateBadMoveFeedback, setLastMoveQuestionable, setPreviewDismissed, stopFeedback, setMentorMessage, setBoard]);
 
@@ -282,16 +290,16 @@ export default function App() {
              
              <div className="w-full relative min-h-[64px] flex items-center justify-center">
                 {isBadMoveBannerVisible ? (
-                   <div className="w-full bg-amber-50 px-4 py-3 rounded-xl shadow-md border border-amber-300 flex flex-row items-center justify-between gap-4 animate-in slide-in-from-top-2 duration-300 z-20">
-                       <div className="flex items-center gap-3 overflow-hidden flex-1 cursor-pointer group" onClick={() => setIsChatOpen(true)}>
-                           <div className="text-2xl shrink-0 group-hover:scale-110 transition-transform">🤔</div>
-                           <div className="flex flex-col min-w-0">
-                               <span className="font-bold text-sm text-amber-900 group-hover:text-amber-700 underline decoration-dotted decoration-amber-400 underline-offset-4 whitespace-normal line-clamp-2 leading-tight">
-                                   {mentorMessage || "I noticed something about that move. Want to talk about it?"}
-                               </span>
-                           </div>
-                       </div>
-                       <div className="flex items-center gap-2 shrink-0">
+                <div className="w-full bg-amber-50 px-4 py-3 rounded-xl shadow-md border border-amber-300 flex flex-row items-center justify-between gap-4 animate-in slide-in-from-top-2 duration-300 z-20">
+                    <div className="flex items-center gap-3 overflow-hidden flex-1 cursor-pointer group" onClick={() => setIsChatOpen(true)}>
+                        <div className="text-2xl shrink-0 group-hover:scale-110 transition-transform">🤔</div>
+                        <div className="flex flex-col min-w-0">
+                            <span className="font-bold text-sm text-amber-900 group-hover:text-amber-700 underline decoration-dotted decoration-amber-400 underline-offset-4 whitespace-normal line-clamp-2 leading-tight">
+                                {mentorMessage || "I noticed something about that move. Want to talk about it?"}
+                            </span>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
                             <button 
                                 onClick={() => setShowBestMoves(prev => !prev)} 
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${showBestMoves ? 'bg-amber-200 text-amber-900 border-amber-400' : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-100'}`}
@@ -313,23 +321,25 @@ export default function App() {
                                     <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
                                 </svg>
                             </button>
-                       </div>
-                   </div>
+                    </div>
+                </div>
                 ) : (
-                   <GameControls 
-                       opponentModel={opponentModel} setOpponentModel={setOpponentModel}
-                       gamePhase={gamePhase}
-                       engineStatus={engineStatus} board={board}
-                       onCancelAi={cancelAiMove} onForceAi={handleForceAi}
-                       onUndo={handleUndo} onRedo={redo}
-                       onPass={handleUserPass} onResign={handleUserResign}
-                       historyLength={historyStack.length} redoLength={redoStack.length}
-                       confirmationPending={confirmationPending} setConfirmationPending={setConfirmationPending}
-                       setupTool={setupTool} setSetupTool={setSetupTool}
-                       onToggleBestMoves={() => setShowBestMoves(prev => !prev)}
-                       showBestMoves={showBestMoves}
-                       onOpenSettings={() => setIsSettingsOpen(true)}
-                   />
+                <GameControls 
+                    opponentModel={opponentModel} setOpponentModel={setOpponentModel}
+                    gamePhase={gamePhase}
+                    engineStatus={engineStatus} board={board}
+                    onCancelAi={cancelAiMove} onForceAi={handleForceAi}
+                    onUndo={handleUndo} onRedo={redo}
+                    onPass={handleUserPass} onResign={handleUserResign}
+                    historyLength={historyStack.length} redoLength={redoStack.length}
+                    confirmationPending={confirmationPending} setConfirmationPending={setConfirmationPending}
+                    setupTool={setupTool} setSetupTool={setSetupTool}
+                    onToggleBestMoves={() => setShowBestMoves(prev => !prev)}
+                    showBestMoves={showBestMoves}
+                    onOpenSettings={() => setIsSettingsOpen(true)}
+                    onSetTurn={setTurn}
+                    onExitSetup={() => setGamePhase('PLAY')}
+                />
                 )}
              </div>
 

@@ -1,17 +1,16 @@
 
 import { useState, useEffect } from 'react';
-import { BoardState, AnalysisMove } from '../types';
+import { BoardState, AnalysisMove, GamePhase } from '../types';
 import { fetchGnuGoHints } from '../services/gnugoService';
 
-export const useAnalysis = (board: BoardState) => {
+export const useAnalysis = (board: BoardState, gamePhase: GamePhase) => {
     const [analysisData, setAnalysisData] = useState<AnalysisMove[]>([]);
 
     useEffect(() => {
         let ignore = false;
 
-        // Clear analysis on new moves or game over
-        // We do this eagerly to ensure UI doesn't show stale hints while fetching
-        if (board.gameOver) {
+        // Clear analysis on new moves, game over, or if we enter SETUP mode
+        if (board.gameOver || gamePhase === 'SETUP') {
             setAnalysisData([]);
             return;
         }
@@ -28,7 +27,7 @@ export const useAnalysis = (board: BoardState) => {
         return () => {
             ignore = true;
         };
-    }, [board.history.length, board.gameOver, board.turn, board]);
+    }, [board.history.length, board.gameOver, board.turn, board, gamePhase]);
 
     return { analysisData, setAnalysisData };
 };

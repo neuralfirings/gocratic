@@ -47,13 +47,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   return (
-    <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm z-20">
-         <div className="flex items-center gap-4">
+    <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm z-20">
+         <div className="flex items-center gap-4 sm:gap-8">
             <div className="flex items-center gap-2">
-                <div className="text-3xl">🤖</div>
-                <h1 className="text-xl font-bold tracking-tight text-slate-800">GoBot</h1>
+                <div className="text-2xl sm:text-3xl">🤖</div>
+                <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-800">GoBot</h1>
             </div>
-            
+
             <div className="flex items-center gap-2">
                 <button 
                     onClick={() => {
@@ -73,21 +73,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
                 <button 
                     onClick={onSave} 
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                    className="hidden sm:block px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 >
                     Save
-                </button>
-                <button 
-                    onClick={handleLoadGameTrigger} 
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                >
-                    Load
                 </button>
                 
                 {isDev && (
                     <button 
                         onClick={handleCopyGnuArray} 
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                        className="hidden sm:block px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                     >
                         GNU
                     </button>
@@ -105,14 +99,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
          <div className="flex items-center gap-2 sm:gap-4 text-sm">
             {sessionCost > 0 && (
-                <div className="hidden sm:block px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full font-bold border border-emerald-100 text-xs">
+                <div className="hidden lg:block px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full font-bold border border-emerald-100 text-xs">
                     ${sessionCost.toFixed(4)}
                 </div>
             )}
             
             <button 
                 onClick={onHelp}
-                className="sm:block px-3 py-1 bg-gray-50 text-gray-700 rounded-full font-bold border border-gray-100 text-xs"
+                className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full font-bold border border-indigo-100 text-xs hover:bg-indigo-100 transition-colors"
                 title="Help"
             >
                 Help

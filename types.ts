@@ -87,16 +87,14 @@ export interface InfluenceMap {
   [key: string]: number; // "x,y" -> value from -1 (Full White) to 1 (Full Black)
 }
 
-// Added Puzzle interface to fix missing export error in puzzleData.ts
+// Added Puzzle interface to fix errors in services/puzzleData.ts and components/PuzzleList.tsx
 export interface Puzzle {
   id: string;
   title: string;
   description: string;
   category: string;
-  difficulty: string;
+  difficulty: 'Beginner' | 'Intermediate' | 'Advanced' | string;
   initialStones: Stone[];
   solutions: Coordinate[];
-  failureMessages?: {
-    [key: string]: string;
-  };
+  failureMessages?: { [key: string]: string };
 }
