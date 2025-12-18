@@ -14,7 +14,7 @@ export const createBoard = (size: number = 9): BoardState => ({
   gameOver: false
 });
 
-const getNeighbors = (c: Coordinate, size: number): Coordinate[] => {
+export const getNeighbors = (c: Coordinate, size: number): Coordinate[] => {
   const moves = [
     { x: c.x + 1, y: c.y },
     { x: c.x - 1, y: c.y },
@@ -24,7 +24,7 @@ const getNeighbors = (c: Coordinate, size: number): Coordinate[] => {
   return moves.filter(m => m.x >= 0 && m.x < size && m.y >= 0 && m.y < size);
 };
 
-const getGroup = (
+export const getGroup = (
   stones: Map<string, StoneColor>,
   start: Coordinate,
   color: StoneColor,
@@ -231,11 +231,50 @@ export const getLegalMoves = (state: BoardState): Coordinate[] => {
   return moves;
 };
 
-// --- SCORING LOGIC (Chinese / Area Scoring) ---
-// Uses external GNU Go API to calculate Chinese Area Score with Komi 0
+/**
+ * Stone Status Face Logic (KidsGo style)
+ * Identifies stones in atari and their attackers.
+ */
+export const calculateStoneFaces = (board: BoardState): Map<string, string> => {
+  const faces = new Map<string, string>();
+  const visited = new Set<string>();
+  const atariGroups: { group: string[], opponent: StoneColor }[] = [];
 
+  // Pass 1: Identify all groups in atari (1 liberty)
+  board.stones.forEach((color, key) => {
+    if (visited.has(key)) return;
+    const [x, y] = key.split(',').map(Number);
+    const { group, liberties } = getGroup(board.stones, { x, y }, color, board.size);
+    group.forEach(k => visited.add(k));
+
+    if (liberties === 1) {
+      group.forEach(k => faces.set(k, 'SAD')); // In danger
+      atariGroups.push({ group, opponent: color === 'BLACK' ? 'WHITE' : 'BLACK' });
+    }
+  });
+
+  // Pass 2: Identify attackers (stones adjacent to groups in atari)
+  atariGroups.forEach(({ group, opponent }) => {
+    group.forEach(key => {
+      const [x, y] = key.split(',').map(Number);
+      const neighbors = getNeighbors({ x, y }, board.size);
+      neighbors.forEach(n => {
+        const nKey = `${n.x},${n.y}`;
+        if (board.stones.get(nKey) === opponent) {
+          // Priority: If attacker is also in atari itself, keep SAD
+          if (faces.get(nKey) !== 'SAD') {
+            faces.set(nKey, 'ANGRY'); // Aggressor
+          }
+        }
+      });
+    });
+  });
+
+  return faces;
+};
+
+// --- SCORING LOGIC (Chinese / Area Scoring) ---
 export const calculateAreaScore = async (board: BoardState): Promise<ScoreResult> => {
-    // Construct moves list in GTP format (e.g. "B C3", "W D4")
     const moves = board.history.map(h => {
         const c = h.color === 'BLACK' ? 'B' : 'W';
         const coordStr = toGtpCoordinate(h.coordinate, board.size);
@@ -246,25 +285,20 @@ export const calculateAreaScore = async (board: BoardState): Promise<ScoreResult
         mode: "finishScore",
         size: board.size,
         chineseRules: true,
-        komi: 0, // Explicit 0 as requested
+        komi: 0,
         moves: moves
     };
 
     try {
         const response = await fetch("https://gnugo-bot-5ci3ymbqfa-uw.a.run.app/action", {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
 
-        if (!response.ok) {
-            throw new Error("Scoring API request failed");
-        }
+        if (!response.ok) throw new Error("Scoring API request failed");
 
         const data = await response.json();
-        // data.result format examples: "B+10.5", "W+2.0", "0"
         const resultStr = data.result;
         
         if (!resultStr) throw new Error("No result from Scoring API");
@@ -280,35 +314,21 @@ export const calculateAreaScore = async (board: BoardState): Promise<ScoreResult
             winner = 'BLACK';
             diff = parseFloat(upper.split('+')[1]);
         } else {
-            // Draw or 0
             diff = 0;
-            winner = 'BLACK'; // Default for interface
+            winner = 'BLACK';
         }
 
         return {
-            blackStones: 0,
-            blackTerritory: 0,
-            blackTotal: 0,
-            whiteStones: 0,
-            whiteTerritory: 0,
-            komi: KOMI,
-            whiteTotal: 0,
-            winner,
-            diff
+            blackStones: 0, blackTerritory: 0, blackTotal: 0,
+            whiteStones: 0, whiteTerritory: 0, komi: KOMI,
+            whiteTotal: 0, winner, diff
         };
     } catch (e) {
         console.error("Error fetching score:", e);
-        // Fallback: Return a draw or basic state to prevent crash
         return {
-            blackStones: 0,
-            blackTerritory: 0,
-            blackTotal: 0,
-            whiteStones: 0,
-            whiteTerritory: 0,
-            komi: KOMI,
-            whiteTotal: 0,
-            winner: 'BLACK',
-            diff: 0
+            blackStones: 0, blackTerritory: 0, blackTotal: 0,
+            whiteStones: 0, whiteTerritory: 0, komi: KOMI,
+            whiteTotal: 0, winner: 'BLACK', diff: 0
         };
     }
 };

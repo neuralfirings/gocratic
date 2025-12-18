@@ -3,6 +3,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import { BoardState, Coordinate, Marker, StoneColor, InfluenceMap } from '../types';
 import { StoneComponent } from './StoneComponent';
 import { getColLabel, getRowLabel } from '../services/gtpUtils';
+import { calculateStoneFaces } from '../services/gameLogic';
 
 interface GoBoardProps {
   board: BoardState;
@@ -14,6 +15,7 @@ interface GoBoardProps {
   onContinue?: () => void;
   highlightedMoveIndex?: number | null;
   influenceMap?: InfluenceMap | null;
+  showStoneFaces?: boolean;
 }
 
 export const GoBoard: React.FC<GoBoardProps> = ({ 
@@ -24,7 +26,8 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   ghostColor = 'BLACK',
   isWaitingForCorrection = false,
   highlightedMoveIndex = null,
-  influenceMap = null
+  influenceMap = null,
+  showStoneFaces = false
 }) => {
   const { size, stones, lastMove, history } = board;
   const [hoverCoord, setHoverCoord] = useState<Coordinate | null>(null);
@@ -33,6 +36,10 @@ export const GoBoard: React.FC<GoBoardProps> = ({
   const pointerDownPos = useRef<{ x: number, y: number } | null>(null);
   const activePointerId = useRef<number | null>(null);
   
+  const stoneFaces = useMemo(() => {
+    return showStoneFaces ? calculateStoneFaces(board) : new Map<string, string>();
+  }, [board, showStoneFaces]);
+
   const stoneMoveIndexMap = useMemo(() => {
     const map = new Map<string, number>();
     history.forEach((h, index) => {
@@ -110,6 +117,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
         const isLast = lastMove?.x === x && lastMove?.y === y;
         const marker = markers.find(m => m.x === x && m.y === y);
         const isHovered = hoverCoord?.x === x && hoverCoord?.y === y;
+        const face = stoneFaces.get(key);
 
         let opacity = 1;
         let isHighlightedMove = false;
@@ -143,7 +151,7 @@ export const GoBoard: React.FC<GoBoardProps> = ({
                 )}
                 {(stoneColor || marker) && (
                     <div className="absolute inset-0 w-full h-full p-[2%]">
-                        <StoneComponent color={stoneColor} isLastMove={isLast} markerType={marker?.type} label={marker?.label} markerColor={marker?.color} />
+                        <StoneComponent color={stoneColor} isLastMove={isLast} markerType={marker?.type} label={marker?.label} markerColor={marker?.color} face={face} />
                     </div>
                 )}
             </div>

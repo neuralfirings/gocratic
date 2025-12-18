@@ -23,6 +23,7 @@ import { useAiCoach } from './hooks/useAiCoach';
 export default function App() {
   const [boardSize, setBoardSize] = useState(9);
   const [influenceEnabled, setInfluenceEnabled] = useState(false);
+  const [stoneFacesEnabled, setStoneFacesEnabled] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // --- Game State Hook ---
@@ -339,6 +340,7 @@ export default function App() {
                  ghostColor={getGhostColor()}
                  highlightedMoveIndex={highlightedMoveIndex}
                  influenceMap={influenceMap}
+                 showStoneFaces={stoneFacesEnabled}
              />
              <ScoreBar board={board} gameResult={gameResult} />
          </div>
@@ -375,6 +377,8 @@ export default function App() {
         onToggleCoach={() => setAutoCoachEnabled(!autoCoachEnabled)}
         influenceEnabled={influenceEnabled}
         onToggleInfluence={() => setInfluenceEnabled(!influenceEnabled)}
+        stoneFacesEnabled={stoneFacesEnabled}
+        onToggleStoneFaces={() => setStoneFacesEnabled(!stoneFacesEnabled)}
         boardSize={boardSize}
         onBoardSizeChange={handleBoardSizeChange}
         hasProgress={board.history.length > 0}

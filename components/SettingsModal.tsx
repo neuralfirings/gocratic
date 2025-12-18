@@ -11,6 +11,8 @@ interface SettingsModalProps {
   onToggleCoach: () => void;
   influenceEnabled: boolean;
   onToggleInfluence: () => void;
+  stoneFacesEnabled: boolean;
+  onToggleStoneFaces: () => void;
   boardSize: number;
   onBoardSizeChange: (size: number) => void;
   hasProgress: boolean;
@@ -25,6 +27,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleCoach,
   influenceEnabled,
   onToggleInfluence,
+  stoneFacesEnabled,
+  onToggleStoneFaces,
   boardSize,
   onBoardSizeChange,
   hasProgress
@@ -153,6 +157,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${influenceEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
             >
               <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 ${influenceEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
+          {/* Stone Faces */}
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="font-bold text-slate-700">Show Stone Faces</span>
+              <span className="text-xs text-slate-500">See emojis when stones are in danger.</span>
+            </div>
+            <button 
+              onClick={onToggleStoneFaces}
+              className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${stoneFacesEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+            >
+              <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 ${stoneFacesEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
           </div>
         </div>

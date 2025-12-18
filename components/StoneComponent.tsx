@@ -3,25 +3,26 @@ import React from 'react';
 import { StoneColor, MarkerType } from '../types';
 
 interface StoneProps {
-  color?: StoneColor; // color is optional now (marker can be on empty spot)
+  color?: StoneColor;
   isLastMove?: boolean;
   markerType?: MarkerType;
   label?: string;
-  markerColor?: string; // Optional override for marker color
+  markerColor?: string;
+  face?: string; // "SAD" (Atari) or "ANGRY" (Attacker)
 }
 
-export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, markerType, label, markerColor }) => {
+export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, markerType, label, markerColor, face }) => {
   
+  const isBlack = color === 'BLACK';
+  const contrastColor = isBlack ? '#ffffff' : '#0f172a';
+
   // Helper to render marker shape
   const renderMarker = () => {
     if (!markerType) return null;
 
-    // Contrast color: If stone is black, marker is white. If stone is white, marker is black. 
-    // If no stone (empty), use markerColor if provided, otherwise Red (default for warnings/threats).
     const defaultColor = color === 'BLACK' ? '#ffffff' : color === 'WHITE' ? '#0f172a' : '#ef4444'; 
     const finalColor = markerColor || defaultColor;
     
-    // Uses inset-0 + m-auto for robust centering instead of transforms
     const commonProps = {
       stroke: finalColor,
       strokeWidth: "2.5",
@@ -59,7 +60,45 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
     }
   };
 
-  const isBlack = color === 'BLACK';
+  const renderFaceGraphic = () => {
+    if (!face) return null;
+
+    const commonProps = {
+      className: "w-[70%] h-[70%] absolute inset-0 m-auto z-20 pointer-events-none drop-shadow-sm opacity-90",
+      viewBox: "0 0 100 100"
+    };
+
+    if (face === 'SAD') {
+      // Atari status: Sad/Worried
+      return (
+        <svg {...commonProps}>
+          {/* Eyes */}
+          <circle cx="35" cy="40" r="6" fill={contrastColor} />
+          <circle cx="65" cy="40" r="6" fill={contrastColor} />
+          {/* Frown */}
+          <path d="M 30 75 Q 50 55 70 75" fill="none" stroke={contrastColor} strokeWidth="6" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    if (face === 'ANGRY') {
+      // Attacker status: Focused/Angry
+      return (
+        <svg {...commonProps}>
+          {/* Slanted Eyebrows */}
+          <path d="M 25 35 L 45 42" stroke={contrastColor} strokeWidth="6" strokeLinecap="round" />
+          <path d="M 55 42 L 75 35" stroke={contrastColor} strokeWidth="6" strokeLinecap="round" />
+          {/* Eyes */}
+          <circle cx="35" cy="50" r="5" fill={contrastColor} />
+          <circle cx="65" cy="50" r="5" fill={contrastColor} />
+          {/* Straight mouth */}
+          <line x1="35" y1="75" x2="65" y2="75" stroke={contrastColor} strokeWidth="6" strokeLinecap="round" />
+        </svg>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className="relative w-full h-full flex items-center justify-center pointer-events-none">
@@ -78,8 +117,11 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
               : '1px 1px 3px rgba(148, 163, 184, 0.5), inset 0 0 0 1px rgba(203, 213, 225, 1)'
           }}
         >
-          {/* Last Move Marker (Subtle dot if no other marker) */}
-          {isLastMove && !markerType && (
+          {/* Stone Status Graphic */}
+          {renderFaceGraphic()}
+
+          {/* Last Move Marker (Subtle dot if no other marker or face) */}
+          {isLastMove && !markerType && !face && (
             <div 
                 className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 ${isBlack ? 'border-white' : 'border-black'}`} 
             />
@@ -87,10 +129,10 @@ export const StoneComponent: React.FC<StoneProps> = ({ color, isLastMove, marker
         </div>
       )}
       
-      {/* Semantic Marker (Triangle, etc) - Renders directly in the center */}
+      {/* Semantic Marker (Triangle, etc) */}
       {renderMarker()}
 
-      {/* Text Label (e.g. Points Score) - Rendered centered, small font */}
+      {/* Text Label */}
       {label && (
         <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
             <span className="text-[10px] font-bold text-white bg-slate-800/80 px-1 rounded shadow-sm leading-none backdrop-blur-sm -mt-[1px]">
